@@ -20,24 +20,23 @@ jobs:
           ref: axm/chat-agent-lane-rule-v1
           fetch-depth: 0
 
-      - name: Reconstruct source archive
+      - name: Reconstruct modular source archive
         shell: bash
         run: |
           set -euo pipefail
-          cat .repo-import/part-* | base64 --decode > /tmp/discovery-v114.tar.gz
-          tar -xzf /tmp/discovery-v114.tar.gz
-          python scripts/build_standalone.py
-          python scripts/regenerate_manifest.py
+          cat .repo-import/chunk-* | base64 --decode > /tmp/discovery-v114-core.tar.gz
+          tar -xzf /tmp/discovery-v114-core.tar.gz
 
       - name: Verify imported body
         shell: bash
         run: |
           set -euo pipefail
           npm test
-          test -f START_HERE.html
           test -f source/reader-organs.js
           test -f source/software-graph.js
-          test -f MANIFEST.json
+          test -f source/software-controller.js
+          test -f source/interaction-controller.js
+          test -f source_roots/SOURCE_LOCK.json
 
       - name: Replace temporary import with real repository tree
         shell: bash
@@ -50,5 +49,5 @@ jobs:
           git config user.name 'AXM Discovery Import'
           git config user.email 'actions@users.noreply.github.com'
           git add -A
-          git commit -m 'import: Discovery Buddy v1.14 reader-organ workstation'
+          git commit -m 'import: Discovery Buddy v1.14 modular reader-organ workstation'
           git push origin HEAD:axm/chat-agent-lane-rule-v1
