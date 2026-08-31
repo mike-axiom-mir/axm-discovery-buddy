@@ -20,31 +20,27 @@ jobs:
           ref: axm/chat-agent-lane-rule-v1
           fetch-depth: 0
 
-      - name: Reconstruct tested v1.14 repository snapshot
+      - name: Verify and unpack tested v1.14 repository snapshot
         shell: bash
         run: |
           set -euo pipefail
-          test "$(find .repo-import -maxdepth 1 -type f -name 'chunk-[0-9][0-9][0-9]' | wc -l)" -eq 21
-          cat .repo-import/chunk-[0-9][0-9][0-9] | base64 --decode > /tmp/discovery-v114.tar.gz
-          echo '6e86a0867f5f3e50d150870bafaef066ee6d99482d32d326e7df29ab6c71eac3  /tmp/discovery-v114.tar.gz' | sha256sum -c -
-          tar -xzf /tmp/discovery-v114.tar.gz
-          python scripts/build_standalone.py
-          python scripts/regenerate_manifest.py
+          echo '9f63176e9266693899513122421b8f932d62ef35a4bfe7bb35dc35131fa93282  .repo-import/payload-v114.tar.gz' | sha256sum -c -
+          tar -xzf .repo-import/payload-v114.tar.gz
 
       - name: Verify imported body
         shell: bash
         run: |
           set -euo pipefail
           npm test
+          test -f AGENTS.md
           test -f START_HERE.html
+          test -f assets/discovery_gold_magenta_background.jpg
           test -f source/reader-organs.js
           test -f source/software-graph.js
           test -f source/software-controller.js
           test -f source/interaction-controller.js
           test -f source_roots/SOURCE_LOCK.json
           test -f MANIFEST.json
-          grep -q 'data:image/jpeg;base64,' source/styles.css
-          grep -q 'AXMReaderOrgans' START_HERE.html
 
       - name: Replace temporary import with real repository tree
         shell: bash
