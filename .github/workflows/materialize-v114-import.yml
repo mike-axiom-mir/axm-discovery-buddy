@@ -20,19 +20,14 @@ jobs:
           ref: axm/chat-agent-lane-rule-v1
           fetch-depth: 0
 
-      - name: Reconstruct v1.14 repository payload
+      - name: Reconstruct tested v1.14 repository snapshot
         shell: bash
         run: |
           set -euo pipefail
-          cat .repo-import/payload-v114-* | base64 --decode > /tmp/discovery-v114.tar.gz
+          test "$(find .repo-import -maxdepth 1 -type f -name 'chunk-[0-9][0-9][0-9]' | wc -l)" -eq 17
+          cat .repo-import/chunk-[0-9][0-9][0-9] | base64 --decode > /tmp/discovery-v114.tar.gz
+          echo 'fa112ab71baf4c820eb5051227f3966d9c4f097d64f47f68002f2f62c75a1f00  /tmp/discovery-v114.tar.gz' | sha256sum -c -
           tar -xzf /tmp/discovery-v114.tar.gz
-
-      - name: Build generated artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          python scripts/build_standalone.py
-          python scripts/regenerate_manifest.py
 
       - name: Verify imported body
         shell: bash
@@ -40,13 +35,13 @@ jobs:
           set -euo pipefail
           npm test
           test -f START_HERE.html
-          test -f assets/discovery_gold_magenta_background.jpg
           test -f source/reader-organs.js
           test -f source/software-graph.js
           test -f source/software-controller.js
           test -f source/interaction-controller.js
           test -f source_roots/SOURCE_LOCK.json
           test -f MANIFEST.json
+          grep -q 'data:image/jpeg;base64,' source/styles.css
 
       - name: Replace temporary import with real repository tree
         shell: bash
