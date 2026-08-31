@@ -20,23 +20,33 @@ jobs:
           ref: axm/chat-agent-lane-rule-v1
           fetch-depth: 0
 
-      - name: Reconstruct modular source archive
+      - name: Reconstruct v1.14 repository payload
         shell: bash
         run: |
           set -euo pipefail
-          cat .repo-import/chunk-* | base64 --decode > /tmp/discovery-v114-core.tar.gz
-          tar -xzf /tmp/discovery-v114-core.tar.gz
+          cat .repo-import/payload-v114-* | base64 --decode > /tmp/discovery-v114.tar.gz
+          tar -xzf /tmp/discovery-v114.tar.gz
+
+      - name: Build generated artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/build_standalone.py
+          python scripts/regenerate_manifest.py
 
       - name: Verify imported body
         shell: bash
         run: |
           set -euo pipefail
           npm test
+          test -f START_HERE.html
+          test -f assets/discovery_gold_magenta_background.jpg
           test -f source/reader-organs.js
           test -f source/software-graph.js
           test -f source/software-controller.js
           test -f source/interaction-controller.js
           test -f source_roots/SOURCE_LOCK.json
+          test -f MANIFEST.json
 
       - name: Replace temporary import with real repository tree
         shell: bash
