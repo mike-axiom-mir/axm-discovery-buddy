@@ -1,0 +1,132 @@
+name: Recover and materialize Discovery Buddy v1.14
+
+on:
+  push:
+    branches:
+      - axm/chat-agent-lane-rule-v1
+    paths:
+      - '.repo-import/READY-V114'
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR lane
+        uses: actions/checkout@v4
+        with:
+          ref: axm/chat-agent-lane-rule-v1
+          fetch-depth: 0
+
+      - name: Recover staged payload from live branch and orphan Git trees
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os, pathlib, urllib.request
+          repo=os.environ['GH_REPO']; token=os.environ['GH_TOKEN']
+          root=pathlib.Path('.repo-import/recovered'); root.mkdir(parents=True,exist_ok=True)
+          # Current branch pieces win.
+          for p in pathlib.Path('.repo-import').glob('payload-*'):
+              if p.is_file(): (root/p.name).write_bytes(p.read_bytes())
+          trees=[
+            '921a941f7b7a49f0835a19e188628d926d9c6f52',
+            '94be03143cac87e530f1a49748cbca8d2d401777',
+            'fba970cd0008bd73a0b62f7abee2175e958b23b3',
+            'a9d9027b97da0550e948ea8b814f43d8f7f939a2',
+            'f9cdf97d4c70864fc78e4b304f808372d1b28a29',
+            '3082f71d4a670e1d9abc0bbae372d1d6f3ae6091',
+            '48faa509057a508193578d75649e55c8b4d173f6',
+            '2b5b88613d58b4d9e063666bfd4d04d5fa3c998b',
+            'f7af9dc7c36047ff841c31a55d52460c3a31cb68',
+          ]
+          headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','User-Agent':'AXM-v114-recovery'}
+          def get(url):
+              req=urllib.request.Request(url,headers=headers)
+              with urllib.request.urlopen(req,timeout=30) as r: return json.load(r)
+          for tree_sha in trees:
+              try: tree=get(f'https://api.github.com/repos/{repo}/git/trees/{tree_sha}?recursive=1')
+              except Exception: continue
+              for e in tree.get('tree',[]):
+                  path=e.get('path',''); name=path.rsplit('/',1)[-1]
+                  if e.get('type')!='blob' or not (name.startswith('payload-core-') or name.startswith('payload-bg-')): continue
+                  dest=root/name
+                  if dest.exists(): continue
+                  try:
+                      blob=get(e['url'])
+                      if blob.get('encoding')=='base64': dest.write_bytes(base64.b64decode(blob['content']))
+                  except Exception: pass
+          required=[f'payload-core-{i:03d}' for i in range(13)]+[f'payload-bg-{i:03d}' for i in range(19)]
+          missing=[n for n in required if not (root/n).is_file()]
+          status={
+            'schema':'axm.discovery-v114-import-status/v1',
+            'required':len(required),'recovered':len(required)-len(missing),'missing':missing,
+            'treesChecked':trees
+          }
+          pathlib.Path('IMPORT_STATUS.json').write_text(json.dumps(status,indent=2)+'\n')
+          print(json.dumps(status,indent=2))
+          if missing: raise SystemExit(42)
+          PY
+
+      - name: Commit exact missing-list if recovery is incomplete
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f IMPORT_STATUS.json ]; then
+            git config user.name 'AXM Discovery Import'
+            git config user.email 'actions@users.noreply.github.com'
+            git add IMPORT_STATUS.json
+            git commit -m 'import: record remaining v1.14 payload gaps' || true
+            git push origin HEAD:axm/chat-agent-lane-rule-v1
+          fi
+
+      - name: Reconstruct verified v1.14 source
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .repo-import/recovered/payload-core-* | base64 --decode > /tmp/discovery-v114-core.tar.gz
+          echo 'de7290b17d0a8677e11517b8371d168c8507b7c9571a69a1625844f3337cf15a  /tmp/discovery-v114-core.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/discovery-v114-core.tar.gz
+          mkdir -p assets
+          cat .repo-import/recovered/payload-bg-* | base64 --decode > assets/discovery_gold_magenta_background.jpg
+          echo '4cc47ae7c47eca26f96f4a2ff25e54c18b41f8abc2149f78014777ae8884c691  assets/discovery_gold_magenta_background.jpg' | sha256sum -c -
+          python3 scripts/build_standalone.py
+          python3 scripts/regenerate_manifest.py
+
+      - name: Verify imported body
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test
+          test -f START_HERE.html
+          test -f MANIFEST.json
+          test -f assets/discovery_gold_magenta_background.jpg
+          test -f source/reader-organs.js
+          test -f source/software-graph.js
+          test -f source/software-controller.js
+          test -f source/interaction-controller.js
+          test -f source_roots/SOURCE_LOCK.json
+
+      - name: Replace import scaffolding with clean repository tree
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .repo-import .axm-import
+          rm -f IMPORT_STATUS.json
+          rm -f .github/workflows/materialize-v114-import.yml .github/workflows/materialize-v114-recovery.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          git config user.name 'AXM Discovery Import'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'import: Discovery Buddy v1.14 reader-organ workstation'
+          git push origin HEAD:axm/chat-agent-lane-rule-v1
