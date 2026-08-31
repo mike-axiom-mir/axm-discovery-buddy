@@ -24,7 +24,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .repo-import/payload100-v114-* | base64 --decode > /tmp/discovery-v114.tar.gz
+          cat .repo-import/payload-v114-* | base64 --decode > /tmp/discovery-v114.tar.gz
           tar -xzf /tmp/discovery-v114.tar.gz
 
       - name: Build generated artifacts
