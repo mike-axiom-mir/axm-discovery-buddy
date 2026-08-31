@@ -20,12 +20,14 @@ jobs:
           ref: axm/chat-agent-lane-rule-v1
           fetch-depth: 0
 
-      - name: Verify and unpack tested v1.14 repository snapshot
+      - name: Reconstruct exact tested v1.14 repository snapshot
         shell: bash
         run: |
           set -euo pipefail
-          echo '9f63176e9266693899513122421b8f932d62ef35a4bfe7bb35dc35131fa93282  .repo-import/payload-v114.tar.gz' | sha256sum -c -
-          tar -xzf .repo-import/payload-v114.tar.gz
+          test "$(find .repo-import -maxdepth 1 -type f -name 'payload-v114-[0-9][0-9][0-9]' | wc -l)" -eq 18
+          cat .repo-import/payload-v114-[0-9][0-9][0-9] | base64 --decode > /tmp/discovery-v114.tar.gz
+          echo '0dbdd994b90114dd7465954facf1fd6ce7506887165c73544d02ec91ef1dedeb  /tmp/discovery-v114.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/discovery-v114.tar.gz
 
       - name: Verify imported body
         shell: bash
@@ -34,13 +36,13 @@ jobs:
           npm test
           test -f AGENTS.md
           test -f START_HERE.html
+          test -f MANIFEST.json
           test -f assets/discovery_gold_magenta_background.jpg
           test -f source/reader-organs.js
           test -f source/software-graph.js
           test -f source/software-controller.js
           test -f source/interaction-controller.js
           test -f source_roots/SOURCE_LOCK.json
-          test -f MANIFEST.json
 
       - name: Replace temporary import with real repository tree
         shell: bash
@@ -53,5 +55,5 @@ jobs:
           git config user.name 'AXM Discovery Import'
           git config user.email 'actions@users.noreply.github.com'
           git add -A
-          git commit -m 'import: Discovery Buddy v1.14 modular reader-organ workstation'
+          git commit -m 'import: Discovery Buddy v1.14 reader-organ workstation'
           git push origin HEAD:axm/chat-agent-lane-rule-v1
