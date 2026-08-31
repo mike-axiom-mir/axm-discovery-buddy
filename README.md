@@ -1,1 +1,1 @@
-# AXM Discovery Buddy
+# axm-discovery-buddy
