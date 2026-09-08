@@ -31,3 +31,17 @@ When useful, separate **what exists** from **how it is expressed on a particular
 - Do not force this split where representation itself is the canonical truth; apply it where truth and realization can honestly be separated.
 
 **Working rule:** degrade expression, never truth; upgrade expression, never invent truth. One body may wake up differently on different machines while remaining the same thing.
+
+## Cross-repository beacon principle
+
+Reusable discoveries may travel between repositories as evidence, never as silent authority.
+
+- Keep each repository independently runnable. Do not introduce runtime imports or hard dependencies on another AXM repository merely to share an organ or idea.
+- When a change appears reusable, the beacon may publish source commit IDs, file/content hashes, changed symbols or knowledge headings, an attention signal, and the exact allowed patch.
+- Publishing exclusions are a hard boundary. Excluded paths must not appear in the exported patch or capsule.
+- A receiving repository may rank and fetch a capsule, but the fetched material stays proposal-only until that repository independently inspects and tests it.
+- Beacon attention/relevance is not correctness, quality, confidence, or canon.
+- Adapt or reimplement a discovery when that better preserves the receiving repository's own architecture. Shared learning does not require shared executable state.
+- Never allow beacon transport state to overwrite canonical source, bypass local acceptance gates, or create automatic AXM canon.
+
+**Working rule:** share evidence and capability discoveries; let every receiving body earn adoption for itself.

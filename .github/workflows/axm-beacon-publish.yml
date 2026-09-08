@@ -1,0 +1,67 @@
+name: AXM Beacon Publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-beacon-feed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out full repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select evidence range
+        id: range
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="${GITHUB_SHA}"
+          before_sha="${{ github.event.before }}"
+          if [[ -z "${before_sha}" || "${before_sha}" =~ ^0+$ ]]; then
+            if git rev-parse "${head_sha}^" >/dev/null 2>&1; then
+              before_sha="$(git rev-parse "${head_sha}^")"
+            else
+              before_sha="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            fi
+          fi
+          echo "base=${before_sha}" >> "$GITHUB_OUTPUT"
+          echo "head=${head_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore previous generated feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/axm-beacon-feed
+          mkdir -p /tmp/axm-beacon-feed
+          if git fetch origin axm-beacon-feed:refs/remotes/origin/axm-beacon-feed 2>/dev/null; then
+            git archive origin/axm-beacon-feed | tar -x -C /tmp/axm-beacon-feed
+          fi
+
+      - name: Build deterministic capsule
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .axm/beacon/beacon.py publish \
+            --base "${{ steps.range.outputs.base }}" \
+            --head "${{ steps.range.outputs.head }}" \
+            --output-dir /tmp/axm-beacon-feed
+
+      - name: Publish generated feed branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "axm-beacon"
+          git config user.email "axm-beacon@users.noreply.github.com"
+          git checkout --orphan __axm_beacon_feed
+          git rm -rf . >/dev/null 2>&1 || true
+          cp -a /tmp/axm-beacon-feed/. .
+          git add -A
+          git commit -m "beacon: publish ${GITHUB_SHA}"
+          git push --force origin HEAD:axm-beacon-feed
