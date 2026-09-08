@@ -1,0 +1,30 @@
+{
+  "protocol": "axm-beacon/0.1",
+  "repo": "mike-axiom-mir/axm-discovery-buddy",
+  "interests": [
+    "organ capability",
+    "deterministic provenance receipts",
+    "state protocol schema",
+    "discovery scanner",
+    "visual observer",
+    "game asset runtime network"
+  ],
+  "publish": {
+    "include": ["**/*"],
+    "exclude": [
+      ".git/**",
+      ".axm/beacon/feed/**",
+      ".axm/beacon/inbox/**",
+      ".repo-import/**",
+      "**/__pycache__/**",
+      "**/*.pyc"
+    ],
+    "max_capsules": 200,
+    "tags": ["axm", "discovery", "standalone"]
+  },
+  "peer_discovery": {
+    "github_owner": "mike-axiom-mir",
+    "repo_prefixes": ["axm-", "Axm-"],
+    "feed_branch": "axm-beacon-feed"
+  }
+}
