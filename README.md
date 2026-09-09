@@ -41,6 +41,7 @@ Default output is `LOCAL_ONLY`.
 
 - The absolute scan root is never written into the index.
 - Arbitrary source-file contents are not exported.
+- Git directory pointers are followed only when their resolved target remains inside the selected scan root.
 - Common generated/dependency directories such as `.git`, `node_modules`, virtual environments, `dist`, and `build` are excluded from traversal.
 
 Public mode is deliberately fail-closed:
