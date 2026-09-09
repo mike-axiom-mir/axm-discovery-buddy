@@ -1,0 +1,6 @@
+{
+  "schema": "axm.discovery-public/v1",
+  "public": true,
+  "repo": "mike-axiom-mir/axm-discovery-buddy",
+  "display_name": "AXM Discovery Buddy"
+}
