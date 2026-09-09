@@ -53,23 +53,46 @@ def _read_json(path: Path, max_bytes: int = MAX_JSON_BYTES) -> tuple[Any | None,
         return None, f"invalid_json:{exc.__class__.__name__}", digest
 
 
-def _git_dir(repo_root: Path) -> Path | None:
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _git_dir(repo_root: Path, scan_root: Path) -> tuple[Path | None, str | None]:
     marker = repo_root / ".git"
-    if marker.is_dir():
-        return marker
-    if marker.is_file():
+    if not (marker.exists() or marker.is_symlink()):
+        return None, None
+    try:
+        resolved_marker = marker.resolve(strict=True)
+    except OSError:
+        return None, "git_dir_unreadable"
+    scan_root = scan_root.resolve()
+    if not _inside(resolved_marker, scan_root):
+        return None, "git_dir_outside_scan_root"
+    if resolved_marker.is_dir():
+        return resolved_marker, None
+    if resolved_marker.is_file():
         try:
-            text = marker.read_text("utf-8").strip()
+            text = resolved_marker.read_text("utf-8").strip()
         except OSError:
-            return None
+            return None, "git_dir_unreadable"
         prefix = "gitdir:"
         if text.lower().startswith(prefix):
             target = text[len(prefix):].strip()
             candidate = Path(target)
             if not candidate.is_absolute():
                 candidate = (repo_root / candidate).resolve()
-            return candidate
-    return None
+            else:
+                candidate = candidate.resolve()
+            if not _inside(candidate, scan_root):
+                return None, "git_dir_outside_scan_root"
+            if not candidate.is_dir():
+                return None, "git_dir_unreadable"
+            return candidate, None
+    return None, "git_dir_unreadable"
 
 
 def _resolve_ref(git_dir: Path, ref: str) -> str | None:
@@ -94,14 +117,18 @@ def _resolve_ref(git_dir: Path, ref: str) -> str | None:
     return None
 
 
-def read_git_identity(repo_root: Path) -> dict[str, Any]:
-    git_dir = _git_dir(repo_root)
+def read_git_identity(repo_root: Path, scan_root: Path) -> dict[str, Any]:
+    marker = repo_root / ".git"
+    present = marker.exists() or marker.is_symlink()
+    git_dir, error = _git_dir(repo_root, scan_root)
     result: dict[str, Any] = {
-        "present": git_dir is not None,
+        "present": present,
         "branch": None,
         "head": None,
         "detached": False,
     }
+    if error:
+        result["error"] = error
     if git_dir is None:
         return result
     try:
@@ -291,7 +318,7 @@ def scan_workspace(root: Path | str, max_depth: int = 4, public: bool = False) -
             repo_record = {
                 "path": rel,
                 "name": repo_root.name,
-                "git": read_git_identity(repo_root),
+                "git": read_git_identity(repo_root, root_path),
                 "readme": _safe_text_digest(repo_root, "README.md"),
                 "agents": _safe_text_digest(repo_root, "AGENTS.md"),
                 "beacon": beacon,
