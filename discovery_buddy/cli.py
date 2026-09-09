@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 
+from .query import load_index, query_capabilities
 from .scanner import render_markdown, scan_workspace
 
 
@@ -100,11 +101,37 @@ def _build_parser() -> argparse.ArgumentParser:
         cmd.add_argument("--output-dir", default=".discovery")
         cmd.add_argument("--max-depth", type=int, default=4)
         cmd.add_argument("--public", action="store_true", help="emit only explicitly marked public-safe repository metadata")
+
+    query = sub.add_parser("query", help="query a saved discovery index without executing discovered capabilities")
+    query.add_argument("index", help="path to a saved local-discovery.json or public-discovery.json")
+    query.add_argument("--capability-id", help="exact capability id")
+    query.add_argument("--provider", help="exact provider value")
+    query.add_argument("--consumer", help="exact consumer value")
+    query.add_argument("--status", help="exact non-null status")
+    query.add_argument("--repo", help="exact public repo id or local workspace-relative repo path")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+
+    if args.command == "query":
+        try:
+            index = load_index(args.index)
+            result = query_capabilities(
+                index,
+                capability_id=args.capability_id,
+                provider=args.provider,
+                consumer=args.consumer,
+                status=args.status,
+                repo=args.repo,
+            )
+        except (OSError, ValueError) as exc:
+            print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if result["summary"]["matches"] else 1
+
     try:
         index = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
     except (OSError, ValueError) as exc:
