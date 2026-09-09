@@ -32,6 +32,20 @@ python -m discovery_buddy query /tmp/axm-discovery/local-discovery.json \
 
 `query` validates the saved index digest, normalized record shapes, repository identities, and independently derived summary counts before returning matches. Exact filters are available for capability id, provider, consumer, status, and repository. Exit `0` means at least one match, `1` means a valid index with no match, and `2` means invalid/unreadable evidence. See [`docs/DISCOVERY_QUERY.md`](docs/DISCOVERY_QUERY.md).
 
+### Portable one-file runner
+
+Build the same scanner/query boundary as a deterministic Python zipapp when a local consumer should not need a Discovery Buddy checkout or package-registry install:
+
+```bash
+python tools/build_portable_discovery.py build \
+  --output dist/discovery-buddy.pyz \
+  --receipt dist/discovery-buddy.pyz.receipt.json
+
+python dist/discovery-buddy.pyz scan /path/to/workspace --output-dir /tmp/axm-discovery
+```
+
+The generated archive contains only the dependency-free `discovery_buddy` Python package plus its entrypoint. `verify` rebuilds it from current source and checks the exact archive and receipt bytes. See [`docs/PORTABLE_ZIPAPP.md`](docs/PORTABLE_ZIPAPP.md) for the deterministic packaging and authority boundary.
+
 ## What it discovers now
 
 For each local Git repository inside the bounded scan depth, the scanner can report:
@@ -76,6 +90,7 @@ Implemented and locally regression-tested in this tree:
 - deterministic JSON + Markdown index generation;
 - exact-byte stale-map verification;
 - exact, deterministic capability querying over an admitted saved index;
+- deterministic one-file local zipapp packaging for the scanner/query boundary;
 - explicit local/private versus public-safe output boundary.
 
 Still not implemented or claimed:
@@ -104,7 +119,13 @@ Focused capability-query suite:
 python -m unittest -v tests/test_query.py
 ```
 
-GitHub Actions runs the scanner suite plus a real checkout scan/verify smoke path, and the capability-query workflow runs Python 3.11/3.13 regressions plus a real `scan -> verify -> query` provider-candidate bridge. The existing Beacon test workflow remains separate and unchanged.
+Portable zipapp suite:
+
+```bash
+python -m unittest -v tests/test_portable_zipapp.py
+```
+
+GitHub Actions runs the scanner suite plus a real checkout scan/verify smoke path, the capability-query workflow runs Python 3.11/3.13 regressions plus a real `scan -> verify -> query` provider-candidate bridge, and the portable workflow rebuilds the zipapp and reruns those boundaries from outside the checkout. The existing Beacon test workflow remains separate and unchanged.
 
 See [`docs/DISCOVERY_INDEX.md`](docs/DISCOVERY_INDEX.md) for the index schema, bridge, privacy, and truth boundaries.
 
