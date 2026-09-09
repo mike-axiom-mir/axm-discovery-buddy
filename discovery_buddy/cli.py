@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
+import tempfile
 
 from .scanner import render_markdown, scan_workspace
 
@@ -15,6 +17,78 @@ def _serialized(index: dict) -> tuple[str, str]:
 def _paths(output_dir: Path, public: bool) -> tuple[Path, Path]:
     stem = "public-discovery" if public else "local-discovery"
     return output_dir / f"{stem}.json", output_dir / f"{stem}.md"
+
+
+def _temp_path(path: Path, purpose: str) -> Path:
+    fd, raw_path = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=f".{purpose}.tmp",
+        dir=path.parent,
+    )
+    os.close(fd)
+    return Path(raw_path)
+
+
+def _stage_text(path: Path, text: str) -> Path:
+    staged = _temp_path(path, "stage")
+    try:
+        staged.write_text(text, "utf-8")
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    return staged
+
+
+def _backup_existing(path: Path) -> Path | None:
+    if not path.exists():
+        return None
+    backup = _temp_path(path, "backup")
+    try:
+        backup.write_bytes(path.read_bytes())
+    except BaseException:
+        backup.unlink(missing_ok=True)
+        raise
+    return backup
+
+
+def _publish_pair(json_path: Path, json_text: str, md_path: Path, md_text: str) -> None:
+    """Publish the two discovery outputs without exposing a half-written pair on handled I/O failure."""
+    targets = ((json_path, json_text), (md_path, md_text))
+    staged: dict[Path, Path] = {}
+    backups: dict[Path, Path | None] = {}
+    published: list[Path] = []
+
+    try:
+        # Complete every potentially partial file write before mutating either final path.
+        for path, text in targets:
+            staged[path] = _stage_text(path, text)
+        for path, _text in targets:
+            backups[path] = _backup_existing(path)
+
+        for path, _text in targets:
+            os.replace(staged[path], path)
+            published.append(path)
+    except OSError as publish_error:
+        rollback_error: OSError | None = None
+        for path in reversed(published):
+            backup = backups.get(path)
+            try:
+                if backup is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    os.replace(backup, path)
+                    backups[path] = None
+            except OSError as exc:
+                rollback_error = exc
+                break
+        if rollback_error is not None:
+            raise OSError(
+                f"discovery output publish failed and rollback also failed: {rollback_error.__class__.__name__}"
+            ) from publish_error
+        raise
+    finally:
+        for temp_path in list(staged.values()) + [p for p in backups.values() if p is not None]:
+            temp_path.unlink(missing_ok=True)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -41,9 +115,12 @@ def main(argv: list[str] | None = None) -> int:
     json_path, md_path = _paths(out_dir, args.public)
 
     if args.command == "scan":
-        out_dir.mkdir(parents=True, exist_ok=True)
-        json_path.write_text(json_text, "utf-8")
-        md_path.write_text(md_text, "utf-8")
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            _publish_pair(json_path, json_text, md_path, md_text)
+        except OSError as exc:
+            print(f"discovery-buddy: ERROR: output publish failed: {exc.__class__.__name__}", file=sys.stderr)
+            return 2
         print(f"discovery-buddy: wrote {json_path} and {md_path} ({index['summary']['repositories']} repos, digest {index['content_sha256']})")
         return 0
 
