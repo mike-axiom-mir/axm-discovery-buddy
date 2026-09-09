@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import discovery_buddy.cli as cli_module
 from discovery_buddy.cli import main as cli_main
 
 
@@ -17,18 +18,21 @@ def make_repo(root: Path) -> Path:
 
 
 class OutputDurabilityTests(unittest.TestCase):
+    def _last_good_fixture(self, tmp: str) -> tuple[Path, Path, Path, bytes, bytes]:
+        root = Path(tmp) / "workspace"
+        root.mkdir()
+        repo = make_repo(root)
+        out = Path(tmp) / "out"
+        self.assertEqual(cli_main(["scan", str(root), "--output-dir", str(out)]), 0)
+        json_path = out / "local-discovery.json"
+        md_path = out / "local-discovery.md"
+        return root, repo, out, json_path.read_bytes(), md_path.read_bytes()
+
     def test_second_output_write_failure_preserves_last_good_pair(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "workspace"
-            root.mkdir()
-            repo = make_repo(root)
-            out = Path(tmp) / "out"
-
-            self.assertEqual(cli_main(["scan", str(root), "--output-dir", str(out)]), 0)
+            root, repo, out, baseline_json, baseline_md = self._last_good_fixture(tmp)
             json_path = out / "local-discovery.json"
             md_path = out / "local-discovery.md"
-            baseline_json = json_path.read_bytes()
-            baseline_md = md_path.read_bytes()
 
             (repo / "README.md").write_text("# changed after last-good snapshot\n", "utf-8")
             real_write_text = Path.write_text
@@ -39,6 +43,28 @@ class OutputDurabilityTests(unittest.TestCase):
                 return real_write_text(path_self, data, *args, **kwargs)
 
             with mock.patch.object(Path, "write_text", autospec=True, side_effect=fail_markdown_write):
+                result = cli_main(["scan", str(root), "--output-dir", str(out)])
+
+            self.assertEqual(result, 2)
+            self.assertEqual(json_path.read_bytes(), baseline_json)
+            self.assertEqual(md_path.read_bytes(), baseline_md)
+            self.assertEqual(list(out.glob(".*.tmp")), [])
+
+    def test_second_publish_replace_failure_rolls_back_first_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, repo, out, baseline_json, baseline_md = self._last_good_fixture(tmp)
+            json_path = out / "local-discovery.json"
+            md_path = out / "local-discovery.md"
+
+            (repo / "README.md").write_text("# changed before replace failure\n", "utf-8")
+            real_replace = cli_module.os.replace
+
+            def fail_markdown_replace(source, destination):
+                if Path(destination) == md_path:
+                    raise OSError("simulated second-output replace failure")
+                return real_replace(source, destination)
+
+            with mock.patch.object(cli_module.os, "replace", side_effect=fail_markdown_replace):
                 result = cli_main(["scan", str(root), "--output-dir", str(out)])
 
             self.assertEqual(result, 2)
