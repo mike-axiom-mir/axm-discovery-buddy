@@ -5,14 +5,14 @@ on:
     paths:
       - '.axm/beacon/**'
       - '.axm/beacon.json'
-      - 'tests/test_beacon.py'
+      - 'tests/test_beacon*.py'
       - '.github/workflows/axm-beacon-*.yml'
   push:
     branches: [main]
     paths:
       - '.axm/beacon/**'
       - '.axm/beacon.json'
-      - 'tests/test_beacon.py'
+      - 'tests/test_beacon*.py'
       - '.github/workflows/axm-beacon-*.yml'
 
 permissions:
@@ -26,4 +26,4 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m unittest -v tests/test_beacon.py
+      - run: python -m unittest discover -s tests -v
