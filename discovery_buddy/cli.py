@@ -9,6 +9,7 @@ import sys
 import tempfile
 from typing import Any
 
+from .output_lock import OutputWriterBusy, output_writer_lock
 from .scanner import render_markdown, scan_workspace
 
 TRANSACTION_SCHEMA = "axm.discovery-output-transaction/v0.1"
@@ -318,6 +319,16 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _pending_transaction_error(journal_path: Path, out_dir: Path, public: bool) -> int:
+    public_flag = " --public" if public else ""
+    print(
+        f"discovery-buddy: ERROR: interrupted output transaction at {journal_path}; "
+        f"run `python -m discovery_buddy recover --output-dir {out_dir}{public_flag}` first",
+        file=sys.stderr,
+    )
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     out_dir = Path(args.output_dir)
@@ -329,21 +340,58 @@ def main(argv: list[str] | None = None) -> int:
             print("discovery-buddy: no interrupted output transaction found")
             return 0
         try:
-            outcome = _recover_pair(json_path, md_path)
+            with output_writer_lock(json_path):
+                # Another process may have completed recovery between the initial observation and
+                # lock acquisition. Re-check under ownership instead of treating that as damage.
+                if not journal_path.exists() and not journal_path.is_symlink():
+                    print("discovery-buddy: no interrupted output transaction found")
+                    return 0
+                outcome = _recover_pair(json_path, md_path)
+        except OutputWriterBusy:
+            print(
+                f"discovery-buddy: ERROR: DISCOVERY_OUTPUT_BUSY: another scan/recover owns {json_path.name}",
+                file=sys.stderr,
+            )
+            return 2
         except OSError as exc:
             print(f"discovery-buddy: ERROR: output recovery failed: {exc}", file=sys.stderr)
             return 2
         print(f"discovery-buddy: RECOVERED: {outcome}")
         return 0
 
+    if args.command == "scan":
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with output_writer_lock(json_path):
+                # Ownership begins before workspace observation. A later scanner cannot publish a
+                # newer snapshot and then be overwritten by this older in-flight scan.
+                if journal_path.exists() or journal_path.is_symlink():
+                    return _pending_transaction_error(journal_path, out_dir, args.public)
+                try:
+                    index = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
+                except (OSError, ValueError) as exc:
+                    print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
+                    return 2
+                json_text, md_text = _serialized(index)
+                try:
+                    _publish_pair(json_path, json_text, md_path, md_text)
+                except OSError as exc:
+                    print(f"discovery-buddy: ERROR: output publish failed: {exc.__class__.__name__}", file=sys.stderr)
+                    return 2
+        except OutputWriterBusy:
+            print(
+                f"discovery-buddy: ERROR: DISCOVERY_OUTPUT_BUSY: another scan/recover owns {json_path.name}",
+                file=sys.stderr,
+            )
+            return 2
+        except OSError as exc:
+            print(f"discovery-buddy: ERROR: output coordination failed: {exc}", file=sys.stderr)
+            return 2
+        print(f"discovery-buddy: wrote {json_path} and {md_path} ({index['summary']['repositories']} repos, digest {index['content_sha256']})")
+        return 0
+
     if journal_path.exists() or journal_path.is_symlink():
-        public_flag = " --public" if args.public else ""
-        print(
-            f"discovery-buddy: ERROR: interrupted output transaction at {journal_path}; "
-            f"run `python -m discovery_buddy recover --output-dir {out_dir}{public_flag}` first",
-            file=sys.stderr,
-        )
-        return 2
+        return _pending_transaction_error(journal_path, out_dir, args.public)
 
     try:
         index = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
@@ -351,16 +399,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
         return 2
     json_text, md_text = _serialized(index)
-
-    if args.command == "scan":
-        try:
-            out_dir.mkdir(parents=True, exist_ok=True)
-            _publish_pair(json_path, json_text, md_path, md_text)
-        except OSError as exc:
-            print(f"discovery-buddy: ERROR: output publish failed: {exc.__class__.__name__}", file=sys.stderr)
-            return 2
-        print(f"discovery-buddy: wrote {json_path} and {md_path} ({index['summary']['repositories']} repos, digest {index['content_sha256']})")
-        return 0
 
     mismatches = []
     for path, expected in ((json_path, json_text), (md_path, md_text)):
