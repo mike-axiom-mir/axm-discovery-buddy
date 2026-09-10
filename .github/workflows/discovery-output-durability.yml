@@ -3,6 +3,7 @@ name: Discovery Output Durability
 on:
   pull_request:
     paths:
+      - 'README.md'
       - 'discovery_buddy/cli.py'
       - 'tests/test_output_durability.py'
       - 'tests/test_output_single_writer.py'
@@ -11,6 +12,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'README.md'
       - 'discovery_buddy/cli.py'
       - 'tests/test_output_durability.py'
       - 'tests/test_output_single_writer.py'
