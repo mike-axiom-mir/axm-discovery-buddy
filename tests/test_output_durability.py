@@ -82,7 +82,23 @@ class OutputDurabilityTests(unittest.TestCase):
             journal = out / ".local-discovery.transaction.json"
 
             (repo / "README.md").write_text("# changed before process crash\n", "utf-8")
-            child = r'''\nimport os\nfrom pathlib import Path\nimport sys\nimport discovery_buddy.cli as cli\nroot = Path(sys.argv[1])\nout = Path(sys.argv[2])\ntarget = out / "local-discovery.json"\nreal_replace = cli.os.replace\ndef crash_after_json(source, destination):\n    real_replace(source, destination)\n    if Path(destination) == target:\n        os._exit(91)\ncli.os.replace = crash_after_json\ncli.main(["scan", str(root), "--output-dir", str(out)])\nraise SystemExit(99)\n'''
+            child = """
+import os
+from pathlib import Path
+import sys
+import discovery_buddy.cli as cli
+root = Path(sys.argv[1])
+out = Path(sys.argv[2])
+target = out / "local-discovery.json"
+real_replace = cli.os.replace
+def crash_after_json(source, destination):
+    real_replace(source, destination)
+    if Path(destination) == target:
+        os._exit(91)
+cli.os.replace = crash_after_json
+cli.main(["scan", str(root), "--output-dir", str(out)])
+raise SystemExit(99)
+"""
             crashed = subprocess.run([sys.executable, "-c", child, str(root), str(out)], check=False)
 
             self.assertEqual(crashed.returncode, 91)
