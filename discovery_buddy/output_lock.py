@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import errno
 import os
 from pathlib import Path
+import stat as stat_module
 from typing import BinaryIO, Iterator
 
 
@@ -27,12 +28,12 @@ def _open_lock_file(lock_path: Path) -> BinaryIO:
 
     fd = os.open(lock_path, flags, 0o600)
     try:
-        stat = os.fstat(fd)
-        if not os.path.isfile(lock_path) or not stat.st_mode:
+        info = os.fstat(fd)
+        if not stat_module.S_ISREG(info.st_mode):
             raise OSError("discovery writer lock is not a regular file")
         # Windows byte-range locking requires at least one byte. Keeping one fixed byte also
         # makes the persistent lock inode intentionally content-free coordination state.
-        if stat.st_size == 0:
+        if info.st_size == 0:
             os.write(fd, b"\0")
         os.lseek(fd, 0, os.SEEK_SET)
         return os.fdopen(fd, "r+b", buffering=0)
