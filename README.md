@@ -31,6 +31,8 @@ python -m discovery_buddy recover --output-dir /tmp/axm-discovery
 
 The recovery journal binds both target names plus the exact previous/new SHA-256 values. If both final files are already the complete new generation, recovery finalizes that generation. Otherwise it restores the exact last-good pair from journal-bound backups before removing the transaction marker. Missing or corrupted rollback evidence fails closed and leaves the transaction available for investigation. This is process-crash/restart recovery; sudden-power-loss durability is not claimed.
 
+Publication and recovery also use one non-blocking host-local writer lock per output pair. Ownership starts before a `scan` observes the workspace and stays held through publication, so a newer scanner cannot publish and then be silently overwritten by an older in-flight snapshot. A competing scan/recovery exits with `DISCOVERY_OUTPUT_BUSY` and makes no output mutation; retrying later performs a fresh scan. The lock file is only inert coordination state, carries no discovery data, and may remain on disk. Operating-system descriptor ownership is released automatically when the process exits, so there is no PID/stale-lock record to guess or clear. Local and public output pairs use separate locks.
+
 ## What it discovers now
 
 For each local Git repository inside the bounded scan depth, the scanner can report:
@@ -76,7 +78,8 @@ Implemented and regression-tested in this tree:
 - exact-byte stale-map verification;
 - explicit local/private versus public-safe output boundary;
 - last-good two-file publication rollback for handled I/O failure;
-- explicit journal-bound recovery after a scanner process dies inside the two-file publication window.
+- explicit journal-bound recovery after a scanner process dies inside the two-file publication window;
+- host-local single-writer admission for each local/public output pair before scan observation and through publication/recovery.
 
 Still not implemented or claimed:
 
@@ -86,7 +89,8 @@ Still not implemented or claimed:
 - pull-request or remote-branch status ingestion;
 - semantic source-code analysis;
 - measured large-workspace performance or scale guarantees;
-- sudden-power-loss or hostile-filesystem transactional guarantees.
+- sudden-power-loss or hostile-filesystem transactional guarantees;
+- cross-host/network-filesystem writer exclusion or distributed locking.
 
 A declared capability is discovery evidence, not runtime proof, quality, authority, or CANON. The existing Organ Beacon remains a separate proposal-only evidence transport lane.
 
@@ -98,13 +102,13 @@ Focused scanner suite:
 python -m unittest -v tests/test_scanner.py
 ```
 
-Output publication/recovery suite:
+Output publication/recovery/single-writer suite:
 
 ```bash
-python -m unittest -v tests/test_output_durability.py
+python -m unittest -v tests/test_output_durability.py tests/test_output_single_writer.py
 ```
 
-GitHub Actions runs the focused scanner suite, publication/recovery regressions, compilation checks, and a real checkout scan/verify smoke test on changes to this surface. The existing Beacon test workflow remains separate and unchanged.
+GitHub Actions runs the focused scanner suite, publication/recovery/single-writer regressions, compilation checks, and a real checkout scan/verify smoke test on changes to this surface. The existing Beacon test workflow remains separate and unchanged.
 
 See [`docs/DISCOVERY_INDEX.md`](docs/DISCOVERY_INDEX.md) for the schema, bridge, privacy, and truth boundaries.
 
