@@ -369,9 +369,20 @@ def main(argv: list[str] | None = None) -> int:
                     return _pending_transaction_error(journal_path, out_dir, args.public)
                 try:
                     index = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
+                    confirmation = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
                 except (OSError, ValueError) as exc:
                     print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
                     return 2
+                if confirmation != index:
+                    print(
+                        "discovery-buddy: ERROR: DISCOVERY_SOURCE_CHANGED: workspace evidence changed between consecutive scans; retry from fresh source state",
+                        file=sys.stderr,
+                    )
+                    return 2
+                # Publish the second observation. Equality means it is byte-for-byte equivalent to
+                # the first deterministic snapshot while keeping the published object nearest to
+                # the final source observation.
+                index = confirmation
                 json_text, md_text = _serialized(index)
                 try:
                     _publish_pair(json_path, json_text, md_path, md_text)
