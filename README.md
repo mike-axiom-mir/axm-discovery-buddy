@@ -33,6 +33,8 @@ The recovery journal binds both target names plus the exact previous/new SHA-256
 
 Publication and recovery also use one non-blocking host-local writer lock per output pair. Ownership starts before a `scan` observes the workspace and stays held through publication, so a newer scanner cannot publish and then be silently overwritten by an older in-flight snapshot. A competing scan/recovery exits with `DISCOVERY_OUTPUT_BUSY` and makes no output mutation; retrying later performs a fresh scan. The lock file is only inert coordination state, carries no discovery data, and may remain on disk. Operating-system descriptor ownership is released automatically when the process exits, so there is no PID/stale-lock record to guess or clear. Local and public output pairs use separate locks.
 
+A publishing `scan` also requires two consecutive complete workspace observations to produce the same deterministic index. If repository evidence changes between those observations, publication stops with `DISCOVERY_SOURCE_CHANGED` before staging or journaling outputs, preserving the prior saved pair for investigation or later retry. This is a bounded stability check, not a source-repository lock or atomic filesystem snapshot: source files can still change after the second observation and before publication.
+
 ## What it discovers now
 
 For each local Git repository inside the bounded scan depth, the scanner can report:
@@ -79,7 +81,8 @@ Implemented and regression-tested in this tree:
 - explicit local/private versus public-safe output boundary;
 - last-good two-file publication rollback for handled I/O failure;
 - explicit journal-bound recovery after a scanner process dies inside the two-file publication window;
-- host-local single-writer admission for each local/public output pair before scan observation and through publication/recovery.
+- host-local single-writer admission for each local/public output pair before scan observation and through publication/recovery;
+- fail-closed publication when two consecutive complete source observations disagree.
 
 Still not implemented or claimed:
 
@@ -89,6 +92,7 @@ Still not implemented or claimed:
 - pull-request or remote-branch status ingestion;
 - semantic source-code analysis;
 - measured large-workspace performance or scale guarantees;
+- atomic source snapshots or source-repository locking;
 - sudden-power-loss or hostile-filesystem transactional guarantees;
 - cross-host/network-filesystem writer exclusion or distributed locking.
 
@@ -102,13 +106,13 @@ Focused scanner suite:
 python -m unittest -v tests/test_scanner.py
 ```
 
-Output publication/recovery/single-writer suite:
+Output publication/recovery/single-writer/source-stability suite:
 
 ```bash
-python -m unittest -v tests/test_output_durability.py tests/test_output_single_writer.py
+python -m unittest -v tests/test_output_durability.py tests/test_output_single_writer.py tests/test_scan_source_stability.py
 ```
 
-GitHub Actions runs the focused scanner suite, publication/recovery/single-writer regressions, compilation checks, and a real checkout scan/verify smoke test on changes to this surface. The existing Beacon test workflow remains separate and unchanged.
+GitHub Actions runs the focused scanner suite, publication/recovery/single-writer/source-stability regressions, compilation checks, and a real checkout scan/verify smoke test on changes to this surface. The existing Beacon test workflow remains separate and unchanged.
 
 See [`docs/DISCOVERY_INDEX.md`](docs/DISCOVERY_INDEX.md) for the schema, bridge, privacy, and truth boundaries.
 
