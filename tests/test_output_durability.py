@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -70,6 +72,28 @@ class OutputDurabilityTests(unittest.TestCase):
             self.assertEqual(result, 2)
             self.assertEqual(json_path.read_bytes(), baseline_json)
             self.assertEqual(md_path.read_bytes(), baseline_md)
+            self.assertEqual(list(out.glob(".*.tmp")), [])
+
+    def test_process_crash_after_first_publish_is_explicitly_recoverable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, repo, out, baseline_json, baseline_md = self._last_good_fixture(tmp)
+            json_path = out / "local-discovery.json"
+            md_path = out / "local-discovery.md"
+            journal = out / ".local-discovery.transaction.json"
+
+            (repo / "README.md").write_text("# changed before process crash\n", "utf-8")
+            child = r'''\nimport os\nfrom pathlib import Path\nimport sys\nimport discovery_buddy.cli as cli\nroot = Path(sys.argv[1])\nout = Path(sys.argv[2])\ntarget = out / "local-discovery.json"\nreal_replace = cli.os.replace\ndef crash_after_json(source, destination):\n    real_replace(source, destination)\n    if Path(destination) == target:\n        os._exit(91)\ncli.os.replace = crash_after_json\ncli.main(["scan", str(root), "--output-dir", str(out)])\nraise SystemExit(99)\n'''
+            crashed = subprocess.run([sys.executable, "-c", child, str(root), str(out)], check=False)
+
+            self.assertEqual(crashed.returncode, 91)
+            self.assertTrue(journal.is_file())
+            self.assertNotEqual(json_path.read_bytes(), baseline_json)
+            self.assertEqual(md_path.read_bytes(), baseline_md)
+            self.assertEqual(cli_main(["verify", str(root), "--output-dir", str(out)]), 2)
+            self.assertEqual(cli_main(["recover", "--output-dir", str(out)]), 0)
+            self.assertEqual(json_path.read_bytes(), baseline_json)
+            self.assertEqual(md_path.read_bytes(), baseline_md)
+            self.assertFalse(journal.exists())
             self.assertEqual(list(out.glob(".*.tmp")), [])
 
 
