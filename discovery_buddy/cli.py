@@ -337,9 +337,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if journal_path.exists() or journal_path.is_symlink():
+        public_flag = " --public" if args.public else ""
         print(
             f"discovery-buddy: ERROR: interrupted output transaction at {journal_path}; "
-            f"run `python -m discovery_buddy recover --output-dir {out_dir}` first",
+            f"run `python -m discovery_buddy recover --output-dir {out_dir}{public_flag}` first",
             file=sys.stderr,
         )
         return 2
