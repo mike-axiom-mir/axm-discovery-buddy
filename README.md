@@ -23,6 +23,14 @@ Rebuild the expected outputs in memory and fail if the saved map has drifted:
 python -m discovery_buddy verify /path/to/workspace --output-dir /tmp/axm-discovery
 ```
 
+If a prior scanner process died after publication began, `scan` and `verify` stop instead of trusting a possibly mixed JSON/Markdown generation. Recovery is explicit:
+
+```bash
+python -m discovery_buddy recover --output-dir /tmp/axm-discovery
+```
+
+The recovery journal binds both target names plus the exact previous/new SHA-256 values. If both final files are already the complete new generation, recovery finalizes that generation. Otherwise it restores the exact last-good pair from journal-bound backups before removing the transaction marker. Missing or corrupted rollback evidence fails closed and leaves the transaction available for investigation. This is process-crash/restart recovery; sudden-power-loss durability is not claimed.
+
 ## What it discovers now
 
 For each local Git repository inside the bounded scan depth, the scanner can report:
@@ -58,7 +66,7 @@ That marker is export intent, not proof of licensing, release readiness, runtime
 
 **EXPERIMENTAL / MATERIALIZED v0.1 SCANNER**
 
-Implemented and locally regression-tested in this tree:
+Implemented and regression-tested in this tree:
 
 - deterministic bounded repository discovery;
 - Git branch/head discovery without requiring a Git subprocess;
@@ -66,7 +74,9 @@ Implemented and locally regression-tested in this tree:
 - capability-registry adapter;
 - deterministic JSON + Markdown index generation;
 - exact-byte stale-map verification;
-- explicit local/private versus public-safe output boundary.
+- explicit local/private versus public-safe output boundary;
+- last-good two-file publication rollback for handled I/O failure;
+- explicit journal-bound recovery after a scanner process dies inside the two-file publication window.
 
 Still not implemented or claimed:
 
@@ -75,7 +85,8 @@ Still not implemented or claimed:
 - resumable million-file scan checkpoints;
 - pull-request or remote-branch status ingestion;
 - semantic source-code analysis;
-- measured large-workspace performance or scale guarantees.
+- measured large-workspace performance or scale guarantees;
+- sudden-power-loss or hostile-filesystem transactional guarantees.
 
 A declared capability is discovery evidence, not runtime proof, quality, authority, or CANON. The existing Organ Beacon remains a separate proposal-only evidence transport lane.
 
@@ -87,7 +98,13 @@ Focused scanner suite:
 python -m unittest -v tests/test_scanner.py
 ```
 
-GitHub Actions also runs the focused scanner suite plus a real checkout scan/verify smoke test on changes to this surface. The existing Beacon test workflow remains separate and unchanged.
+Output publication/recovery suite:
+
+```bash
+python -m unittest -v tests/test_output_durability.py
+```
+
+GitHub Actions runs the focused scanner suite, publication/recovery regressions, compilation checks, and a real checkout scan/verify smoke test on changes to this surface. The existing Beacon test workflow remains separate and unchanged.
 
 See [`docs/DISCOVERY_INDEX.md`](docs/DISCOVERY_INDEX.md) for the schema, bridge, privacy, and truth boundaries.
 
