@@ -6,6 +6,7 @@ on:
       - 'discovery_buddy/cli.py'
       - 'tests/test_output_durability.py'
       - 'tests/test_output_single_writer.py'
+      - 'tests/test_scan_source_stability.py'
       - '.github/workflows/discovery-output-durability.yml'
   push:
     branches: [main]
@@ -13,6 +14,7 @@ on:
       - 'discovery_buddy/cli.py'
       - 'tests/test_output_durability.py'
       - 'tests/test_output_single_writer.py'
+      - 'tests/test_scan_source_stability.py'
       - '.github/workflows/discovery-output-durability.yml'
 
 permissions:
@@ -29,6 +31,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m unittest -v tests/test_output_durability.py tests/test_output_single_writer.py
+      - run: python -m unittest -v tests/test_output_durability.py tests/test_output_single_writer.py tests/test_scan_source_stability.py
       - run: python -m unittest -v tests/test_scanner.py
       - run: python -m compileall -q discovery_buddy tests
