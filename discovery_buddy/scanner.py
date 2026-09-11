@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 from typing import Any, Iterable
 
 SCHEMA_VERSION = "axm.discovery-index/v0.1"
@@ -22,6 +23,8 @@ DEFAULT_EXCLUDES = frozenset({
 })
 MAX_JSON_BYTES = 2 * 1024 * 1024
 MAX_JSONL_BYTES = 4 * 1024 * 1024
+MAX_GIT_TEXT_BYTES = 8 * 1024 * 1024
+READ_CHUNK_BYTES = 64 * 1024
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -32,18 +35,76 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _read_bytes(path: Path, max_bytes: int) -> tuple[bytes | None, str | None]:
+def _inside(path: Path, root: Path) -> bool:
     try:
-        size = path.stat().st_size
-        if size > max_bytes:
-            return None, f"too_large:{size}>{max_bytes}"
-        return path.read_bytes(), None
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _file_identity(info: os.stat_result) -> tuple[int, int]:
+    return info.st_dev, info.st_ino
+
+
+def _read_bytes(path: Path, max_bytes: int, allowed_root: Path) -> tuple[bytes | None, str | None]:
+    """Read one regular source file without following it outside the admitted root."""
+    try:
+        root = allowed_root.resolve(strict=True)
+        admitted = os.lstat(path)
+        if not stat.S_ISREG(admitted.st_mode):
+            return None, "unsafe_source_type"
+        if admitted.st_size > max_bytes:
+            return None, f"too_large:{admitted.st_size}>{max_bytes}"
+
+        resolved = path.resolve(strict=True)
+        if not _inside(resolved, root):
+            return None, "source_outside_root"
+
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(resolved, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode):
+                return None, "unsafe_source_type"
+            if _file_identity(opened) != _file_identity(admitted):
+                return None, "source_changed_before_read"
+            if opened.st_size > max_bytes:
+                return None, f"too_large:{opened.st_size}>{max_bytes}"
+
+            chunks: list[bytes] = []
+            total = 0
+            while total <= max_bytes:
+                chunk = os.read(descriptor, min(READ_CHUNK_BYTES, max_bytes + 1 - total))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+            if total > max_bytes:
+                return None, f"too_large:>{max_bytes}"
+
+            finished = os.fstat(descriptor)
+            if (
+                _file_identity(finished) != _file_identity(opened)
+                or finished.st_size != opened.st_size
+                or finished.st_mtime_ns != opened.st_mtime_ns
+                or finished.st_ctime_ns != opened.st_ctime_ns
+                or total != finished.st_size
+            ):
+                return None, "source_changed_during_read"
+            return b"".join(chunks), None
+        finally:
+            os.close(descriptor)
     except OSError as exc:
         return None, f"read_error:{exc.__class__.__name__}"
 
 
-def _read_json(path: Path, max_bytes: int = MAX_JSON_BYTES) -> tuple[Any | None, str | None, str | None]:
-    raw, error = _read_bytes(path, max_bytes)
+def _read_json(
+    path: Path,
+    allowed_root: Path,
+    max_bytes: int = MAX_JSON_BYTES,
+) -> tuple[Any | None, str | None, str | None]:
+    raw, error = _read_bytes(path, max_bytes, allowed_root)
     if raw is None:
         return None, error, None
     digest = _sha256_bytes(raw)
@@ -51,14 +112,6 @@ def _read_json(path: Path, max_bytes: int = MAX_JSON_BYTES) -> tuple[Any | None,
         return json.loads(raw.decode("utf-8-sig")), None, digest
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         return None, f"invalid_json:{exc.__class__.__name__}", digest
-
-
-def _inside(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        return False
 
 
 def _git_dir(repo_root: Path, scan_root: Path) -> tuple[Path | None, str | None]:
@@ -75,9 +128,12 @@ def _git_dir(repo_root: Path, scan_root: Path) -> tuple[Path | None, str | None]
     if resolved_marker.is_dir():
         return resolved_marker, None
     if resolved_marker.is_file():
+        raw, read_error = _read_bytes(resolved_marker, MAX_GIT_TEXT_BYTES, scan_root)
+        if raw is None:
+            return None, "git_dir_unreadable"
         try:
-            text = resolved_marker.read_text("utf-8").strip()
-        except OSError:
+            text = raw.decode("utf-8").strip()
+        except UnicodeDecodeError:
             return None, "git_dir_unreadable"
         prefix = "gitdir:"
         if text.lower().startswith(prefix):
@@ -95,25 +151,33 @@ def _git_dir(repo_root: Path, scan_root: Path) -> tuple[Path | None, str | None]
     return None, "git_dir_unreadable"
 
 
+def _read_git_text(path: Path, git_dir: Path, *, errors: str = "strict") -> str | None:
+    raw, error = _read_bytes(path, MAX_GIT_TEXT_BYTES, git_dir)
+    if raw is None or error is not None:
+        return None
+    try:
+        return raw.decode("ascii", errors=errors)
+    except UnicodeDecodeError:
+        return None
+
+
 def _resolve_ref(git_dir: Path, ref: str) -> str | None:
     loose = git_dir / ref
-    if loose.is_file():
-        try:
-            value = loose.read_text("ascii").strip()
-        except OSError:
-            return None
-        return value or None
+    if loose.exists() or loose.is_symlink():
+        value = _read_git_text(loose, git_dir)
+        if value is not None:
+            value = value.strip()
+            return value or None
     packed = git_dir / "packed-refs"
-    if packed.is_file():
-        try:
-            for line in packed.read_text("ascii", errors="replace").splitlines():
-                if not line or line.startswith(('#', '^')):
+    if packed.exists() or packed.is_symlink():
+        text = _read_git_text(packed, git_dir, errors="replace")
+        if text is not None:
+            for line in text.splitlines():
+                if not line or line.startswith(("#", "^")):
                     continue
                 sha, _, name = line.partition(" ")
                 if name == ref:
                     return sha
-        except OSError:
-            return None
     return None
 
 
@@ -131,11 +195,11 @@ def read_git_identity(repo_root: Path, scan_root: Path) -> dict[str, Any]:
         result["error"] = error
     if git_dir is None:
         return result
-    try:
-        head_text = (git_dir / "HEAD").read_text("ascii").strip()
-    except OSError:
+    head_text = _read_git_text(git_dir / "HEAD", git_dir)
+    if head_text is None:
         result["error"] = "head_unreadable"
         return result
+    head_text = head_text.strip()
     if head_text.startswith("ref: "):
         ref = head_text[5:].strip()
         result["branch"] = ref.removeprefix("refs/heads/")
@@ -148,9 +212,9 @@ def read_git_identity(repo_root: Path, scan_root: Path) -> dict[str, Any]:
 
 def _safe_text_digest(repo_root: Path, relative: str) -> dict[str, Any]:
     path = repo_root / relative
-    if not path.is_file():
+    if not (path.exists() or path.is_symlink()):
         return {"present": False, "sha256": None}
-    raw, error = _read_bytes(path, MAX_JSON_BYTES)
+    raw, error = _read_bytes(path, MAX_JSON_BYTES, repo_root)
     return {
         "present": True,
         "sha256": _sha256_bytes(raw) if raw is not None else None,
@@ -160,9 +224,9 @@ def _safe_text_digest(repo_root: Path, relative: str) -> dict[str, Any]:
 
 def read_beacon(repo_root: Path) -> dict[str, Any]:
     path = repo_root / ".axm" / "beacon.json"
-    if not path.is_file():
+    if not (path.exists() or path.is_symlink()):
         return {"present": False}
-    data, error, digest = _read_json(path)
+    data, error, digest = _read_json(path, repo_root)
     result: dict[str, Any] = {"present": True, "sha256": digest}
     if error:
         result["error"] = error
@@ -184,9 +248,9 @@ def read_beacon(repo_root: Path) -> dict[str, Any]:
 
 def read_public_marker(repo_root: Path) -> dict[str, Any]:
     path = repo_root / ".axm" / "discovery-public.json"
-    if not path.is_file():
+    if not (path.exists() or path.is_symlink()):
         return {"present": False, "eligible": False}
-    data, error, digest = _read_json(path)
+    data, error, digest = _read_json(path, repo_root)
     result: dict[str, Any] = {"present": True, "eligible": False, "sha256": digest}
     if error:
         result["error"] = error
@@ -208,16 +272,18 @@ def read_public_marker(repo_root: Path) -> dict[str, Any]:
 
 
 def _registry_candidates(repo_root: Path) -> Iterable[Path]:
+    registry = repo_root / "registry"
+    if registry.is_symlink():
+        return
     preferred = [
-        repo_root / "registry" / "capabilities.jsonl",
-        repo_root / "registry" / "capabilities.v0.1.jsonl",
+        registry / "capabilities.jsonl",
+        registry / "capabilities.v0.1.jsonl",
     ]
     seen: set[Path] = set()
     for path in preferred:
-        if path.is_file() and path not in seen:
+        if (path.exists() or path.is_symlink()) and path not in seen:
             seen.add(path)
             yield path
-    registry = repo_root / "registry"
     if registry.is_dir():
         for path in sorted(registry.glob("*capabilit*.jsonl")):
             if path not in seen:
@@ -228,8 +294,11 @@ def _registry_candidates(repo_root: Path) -> Iterable[Path]:
 def read_capabilities(repo_root: Path) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
+    registry = repo_root / "registry"
+    if registry.is_symlink():
+        return {"sources": [{"path": "registry", "error": "unsafe_source_type"}], "records": []}
     for path in _registry_candidates(repo_root):
-        raw, error = _read_bytes(path, MAX_JSONL_BYTES)
+        raw, error = _read_bytes(path, MAX_JSONL_BYTES, repo_root)
         relative = path.relative_to(repo_root).as_posix()
         if raw is None:
             sources.append({"path": relative, "error": error})
