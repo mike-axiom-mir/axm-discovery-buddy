@@ -35,6 +35,8 @@ Publication and recovery also use one non-blocking host-local writer lock per ou
 
 A publishing `scan` also requires two consecutive complete workspace observations to produce the same deterministic index. If repository evidence changes between those observations, publication stops with `DISCOVERY_SOURCE_CHANGED` before staging or journaling outputs, preserving the prior saved pair for investigation or later retry. This is a bounded stability check, not a source-repository lock or atomic filesystem snapshot: source files can still change after the second observation and before publication.
 
+Scanner evidence files are now admitted as bounded regular files under the repository or already-confined Git directory that owns them. Final-path symlinks and symlinked capability-registry directories are refused; resolved reads must stay inside that admitted root; and the opened descriptor must still identify the file that was admitted before any bytes are accepted. Observable size/time/identity drift during the descriptor-bound read also fails closed. This prevents a stable out-of-workspace symlink from becoming discovery evidence even when two consecutive scans would agree on it, and narrows check-to-use replacement races. It is still not an atomic workspace snapshot or hostile-filesystem sandbox.
+
 ## What it discovers now
 
 For each local Git repository inside the bounded scan depth, the scanner can report:
@@ -54,6 +56,7 @@ Default output is `LOCAL_ONLY`.
 - The absolute scan root is never written into the index.
 - Arbitrary source-file contents are not exported.
 - Git directory pointers are followed only when their resolved target remains inside the selected scan root.
+- Named scanner evidence files must be regular admitted files under their owning repository or confined Git directory; external symlink targets are not consumed as evidence.
 - Common generated/dependency directories such as `.git`, `node_modules`, virtual environments, `dist`, and `build` are excluded from traversal.
 
 Public mode is deliberately fail-closed:
@@ -82,7 +85,8 @@ Implemented and regression-tested in this tree:
 - last-good two-file publication rollback for handled I/O failure;
 - explicit journal-bound recovery after a scanner process dies inside the two-file publication window;
 - host-local single-writer admission for each local/public output pair before scan observation and through publication/recovery;
-- fail-closed publication when two consecutive complete source observations disagree.
+- fail-closed publication when two consecutive complete source observations disagree;
+- root-confined, descriptor-bound regular-file admission for scanner evidence reads, including symlink/refusal and pre-open identity checks.
 
 Still not implemented or claimed:
 
@@ -93,6 +97,7 @@ Still not implemented or claimed:
 - semantic source-code analysis;
 - measured large-workspace performance or scale guarantees;
 - atomic source snapshots or source-repository locking;
+- hostile-filesystem or adversarial same-inode mutation guarantees;
 - sudden-power-loss or hostile-filesystem transactional guarantees;
 - cross-host/network-filesystem writer exclusion or distributed locking.
 
@@ -106,13 +111,19 @@ Focused scanner suite:
 python -m unittest -v tests/test_scanner.py
 ```
 
+Scanner source-file admission suite:
+
+```bash
+python -m unittest -v tests/test_source_file_admission.py
+```
+
 Output publication/recovery/single-writer/source-stability suite:
 
 ```bash
 python -m unittest -v tests/test_output_durability.py tests/test_output_single_writer.py tests/test_scan_source_stability.py
 ```
 
-GitHub Actions runs the focused scanner suite, publication/recovery/single-writer/source-stability regressions, compilation checks, and a real checkout scan/verify smoke test on changes to this surface. The existing Beacon test workflow remains separate and unchanged.
+GitHub Actions runs the focused scanner suite, source-file admission regressions, publication/recovery/single-writer/source-stability regressions, compilation checks, and a real checkout scan/verify smoke test on changes to this surface. The existing Beacon test workflow remains separate and unchanged.
 
 See [`docs/DISCOVERY_INDEX.md`](docs/DISCOVERY_INDEX.md) for the schema, bridge, privacy, and truth boundaries.
 
