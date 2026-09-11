@@ -1,8 +1,11 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
+from discovery_buddy import scanner
 from discovery_buddy.scanner import scan_workspace
 
 
@@ -97,6 +100,30 @@ class SourceFileAdmissionTests(unittest.TestCase):
             self.assertIsNone(identity["branch"])
             self.assertIsNone(identity["head"])
             self.assertNotIn(secret, json.dumps(index))
+
+    def test_file_replaced_after_admission_is_refused_before_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "evidence.json"
+            source.write_bytes(b'{"safe":true}\n')
+            replacement = root / "replacement.json"
+            replacement.write_bytes(b'{"secret":"PRIVATE_REPLACEMENT"}\n')
+            real_open = os.open
+            swapped = False
+
+            def replace_before_open(path, flags, *args, **kwargs):
+                nonlocal swapped
+                if not swapped and Path(path) == source:
+                    os.replace(replacement, source)
+                    swapped = True
+                return real_open(path, flags, *args, **kwargs)
+
+            with patch.object(scanner.os, "open", side_effect=replace_before_open):
+                raw, error = scanner._read_bytes(source, 1024, root)
+
+            self.assertTrue(swapped)
+            self.assertIsNone(raw)
+            self.assertEqual(error, "source_changed_before_read")
 
 
 if __name__ == "__main__":
