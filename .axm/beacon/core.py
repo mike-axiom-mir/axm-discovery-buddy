@@ -38,6 +38,24 @@ TOKEN_STOPWORDS = {
     "spec", "specs", "docs", "doc", "config", "configs", "data", "assets",
     "public", "private", "new", "old", "file", "files", "the", "and", "for",
 }
+SENSITIVE_PATH_NAMES = {
+    ".env",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    "bridge-token.txt",
+    "credentials.json",
+    "secrets.json",
+    "secrets.yaml",
+    "secrets.yml",
+}
+PRIVATE_KEY_NAMES = {
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "id_rsa",
+}
+PUBLIC_TEMPLATE_SUFFIXES = (".example", ".sample", ".template")
 JS_SYMBOL_RE = re.compile(
     r"\b(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)"
 )
@@ -145,7 +163,24 @@ def _matches_any(path: str, patterns: Iterable[str]) -> bool:
     return any(fnmatch.fnmatch(normalized, p) or fnmatch.fnmatch(f"./{normalized}", p) for p in patterns)
 
 
+def _sensitive_path(path: str) -> bool:
+    normalized = path.replace("\\", "/").strip("/")
+    name = normalized.rsplit("/", 1)[-1].lower()
+    if name.endswith(PUBLIC_TEMPLATE_SUFFIXES):
+        return False
+    if name in SENSITIVE_PATH_NAMES or name in PRIVATE_KEY_NAMES:
+        return True
+    if name.startswith(".env."):
+        return True
+    lower = normalized.lower()
+    return lower == ".aws/credentials" or lower.endswith("/.aws/credentials")
+
+
 def path_allowed(path: str, config: dict[str, Any]) -> bool:
+    # Repository configuration may narrow publication further, but it cannot
+    # opt obvious credential stores back into a cross-repository feed.
+    if _sensitive_path(path):
+        return False
     publish = config.get("publish", {})
     include = publish.get("include") or ["**/*"]
     exclude = publish.get("exclude") or []
