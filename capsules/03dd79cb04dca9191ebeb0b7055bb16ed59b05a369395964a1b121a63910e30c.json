@@ -1,0 +1,86 @@
+{
+  "capsule_id": "03dd79cb04dca9191ebeb0b7055bb16ed59b05a369395964a1b121a63910e30c",
+  "evidence": {
+    "files": [
+      {
+        "additions": 35,
+        "binary": false,
+        "content_sha256": "7f7fd869589b94c16d41576c3ff688994e183e83a7b674d1e530d2aa6134e30e",
+        "deletions": 0,
+        "path": ".axm/beacon/core.py",
+        "status": "M",
+        "symbols": [
+          "_matches_any",
+          "_sensitive_path",
+          "path_allowed"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 3,
+        "binary": false,
+        "content_sha256": "f60ce32f7f37eee22c64e3c819765811451628a36664931e1cafa0b819e2eb72",
+        "deletions": 3,
+        "path": ".github/workflows/axm-beacon-test.yml",
+        "status": "M",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 140,
+        "binary": false,
+        "content_sha256": "97ee7e66512f3d3ed02bbb066824860da1aec3c54ab0dd3fa7082f75ee6c34b0",
+        "deletions": 0,
+        "path": "tests/test_beacon_sensitive_paths.py",
+        "status": "A",
+        "symbols": [
+          "git",
+          "BeaconSensitivePathTests"
+        ],
+        "topics": []
+      }
+    ],
+    "patch_sha256": "205f9d53175bee9c8c0b47aa45118436abd6c11c35cc60162e46b1489396dc02"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 5,
+    "kinds": [
+      "code",
+      "configuration",
+      "test-change"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "allowed",
+      "any",
+      "axm",
+      "beacon",
+      "credential",
+      "discovery",
+      "feeds",
+      "git",
+      "github",
+      "keep",
+      "matches",
+      "out",
+      "path",
+      "paths",
+      "sensitive",
+      "standalone",
+      "workflows",
+      "yml"
+    ]
+  },
+  "source": {
+    "base": "5bdc1ee8eeeea0b9550cfc757e808d80b1f19985",
+    "commit_subject": "Keep credential paths out of Beacon feeds",
+    "head": "8f4dd6b13a9d0a8720a3a019082e45e89d9f2a2d",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "capsule_id": "e905cc9d99db9102ab7fa2a2660a8b50bbf0140ec80661a318a48ea96eea0275",
+  "evidence": {
+    "files": [
+      {
+        "additions": 29,
+        "binary": false,
+        "content_sha256": "1bd0f1b69250e43330beef9c066b862a69689ea45d4569d66c1abcc7977e071c",
+        "deletions": 5,
+        "path": ".axm/beacon/network.py",
+        "status": "M",
+        "symbols": [
+          "scan",
+          "_is_sha256",
+          "_validate_fetch_identity",
+          "fetch_capsule"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 13,
+        "binary": false,
+        "content_sha256": "5f15c5bf68f0803a761c4ce0d78449e089c6857abae4c7eabf0a572c5f88cf46",
+        "deletions": 0,
+        "path": "docs/AXM_BEACON_PROTOCOL.md",
+        "status": "M",
+        "symbols": [],
+        "topics": [
+          "Fetch-time identity gate",
+          "Attention score"
+        ]
+      },
+      {
+        "additions": 47,
+        "binary": false,
+        "content_sha256": "8e23a3432b0351fcd5227ed82c140a1715cafda28356cfcc79018c46ebb06f47",
+        "deletions": 0,
+        "path": "tests/test_beacon.py",
+        "status": "M",
+        "symbols": [
+          "git",
+          "BeaconTests"
+        ],
+        "topics": []
+      }
+    ],
+    "patch_sha256": "cba53d636186fd1c9c39b361a32e06e54aa74c1b31a241e47ea3bd4ecd72557e"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 7,
+    "kinds": [
+      "code",
+      "knowledge",
+      "protocol-state",
+      "test-change"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "admission",
+      "attention",
+      "axm",
+      "beacon",
+      "capsule",
+      "discovery",
+      "fetch",
+      "gate",
+      "git",
+      "harden",
+      "identity",
+      "lineage",
+      "network",
+      "protocol",
+      "scan",
+      "score",
+      "sha256",
+      "standalone",
+      "time",
+      "validate"
+    ]
+  },
+  "source": {
+    "base": "1a38d474d323456b145d949c3da72d57274b6457",
+    "commit_subject": "Harden Beacon fetch lineage admission",
+    "head": "5bdc1ee8eeeea0b9550cfc757e808d80b1f19985",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}

@@ -1,0 +1,1950 @@
+diff --git a/.github/workflows/discovery-capability-query.yml b/.github/workflows/discovery-capability-query.yml
+new file mode 100644
+index 0000000..9839c7e
+--- /dev/null
++++ b/.github/workflows/discovery-capability-query.yml
+@@ -0,0 +1,88 @@
++name: Discovery Capability Query
++
++on:
++  pull_request:
++    paths:
++      - 'discovery_buddy/**'
++      - 'tests/test_query.py'
++      - 'tests/test_scanner.py'
++      - 'docs/DISCOVERY_QUERY.md'
++      - '.github/workflows/discovery-capability-query.yml'
++      - 'README.md'
++  push:
++    branches: [main]
++    paths:
++      - 'discovery_buddy/**'
++      - 'tests/test_query.py'
++      - 'tests/test_scanner.py'
++      - 'docs/DISCOVERY_QUERY.md'
++      - '.github/workflows/discovery-capability-query.yml'
++      - 'README.md'
++
++permissions:
++  contents: read
++
++jobs:
++  query:
++    runs-on: ubuntu-latest
++    strategy:
++      matrix:
++        python-version: ['3.11', '3.13']
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: ${{ matrix.python-version }}
++      - name: Compile dependency-free package
++        run: python -m compileall -q discovery_buddy tests/test_query.py tests/test_scanner.py
++      - name: Query and scanner regressions
++        run: python -m unittest -v tests/test_query.py tests/test_scanner.py
++      - name: Real scan to query bridge
++        run: |
++          python - <<'PY'
++          import json
++          from pathlib import Path
++          import subprocess
++          import sys
++          import tempfile
++
++          with tempfile.TemporaryDirectory() as tmp:
++              root = Path(tmp) / "workspace"
++              repo = root / "provider"
++              out = Path(tmp) / "out"
++              (repo / ".git" / "refs" / "heads").mkdir(parents=True)
++              (repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n", "ascii")
++              (repo / ".git" / "refs" / "heads" / "main").write_text("a" * 40 + "\n", "ascii")
++              (repo / ".axm").mkdir()
++              (repo / ".axm" / "discovery-public.json").write_text(json.dumps({
++                  "schema": "axm.discovery-public/v1",
++                  "public": True,
++                  "repo": "smoke/provider",
++                  "display_name": "Smoke Provider",
++              }) + "\n", "utf-8")
++              (repo / "registry").mkdir()
++              (repo / "registry" / "capabilities.jsonl").write_text(json.dumps({
++                  "id": "axm.smoke.capability/v1",
++                  "providers": ["smoke.cli"],
++                  "consumers": [],
++                  "status": "TEST",
++              }, sort_keys=True) + "\n", "utf-8")
++
++              subprocess.run([
++                  sys.executable, "-m", "discovery_buddy", "scan", str(root),
++                  "--output-dir", str(out), "--public",
++              ], check=True)
++              subprocess.run([
++                  sys.executable, "-m", "discovery_buddy", "verify", str(root),
++                  "--output-dir", str(out), "--public",
++              ], check=True)
++              result = subprocess.run([
++                  sys.executable, "-m", "discovery_buddy", "query", str(out / "public-discovery.json"),
++                  "--capability-id", "axm.smoke.capability/v1", "--provider", "smoke.cli",
++              ], check=True, capture_output=True, text=True)
++              payload = json.loads(result.stdout)
++              assert payload["summary"] == {"matches": 1}
++              assert payload["candidates"][0]["repository"] == "smoke/provider"
++              assert payload["authority"]["classification"] == "DISCOVERY_EVIDENCE_ONLY"
++              assert all(payload["authority"][key] is False for key in ("execute", "install", "select", "merge", "canon"))
++          PY
+diff --git a/.github/workflows/portable-discovery-zipapp.yml b/.github/workflows/portable-discovery-zipapp.yml
+new file mode 100644
+index 0000000..3cd71ea
+--- /dev/null
++++ b/.github/workflows/portable-discovery-zipapp.yml
+@@ -0,0 +1,53 @@
++name: Portable Discovery Zipapp
++
++on:
++  pull_request:
++    paths:
++      - 'discovery_buddy/**'
++      - 'tools/build_portable_discovery.py'
++      - 'tests/test_portable_zipapp.py'
++      - 'tests/test_query.py'
++      - 'tests/test_scanner.py'
++      - 'docs/PORTABLE_ZIPAPP.md'
++      - '.github/workflows/portable-discovery-zipapp.yml'
++      - 'README.md'
++  push:
++    branches: [main]
++    paths:
++      - 'discovery_buddy/**'
++      - 'tools/build_portable_discovery.py'
++      - 'tests/test_portable_zipapp.py'
++      - 'tests/test_query.py'
++      - 'tests/test_scanner.py'
++      - 'docs/PORTABLE_ZIPAPP.md'
++      - '.github/workflows/portable-discovery-zipapp.yml'
++      - 'README.md'
++
++permissions:
++  contents: read
++
++jobs:
++  portable:
++    runs-on: ubuntu-latest
++    strategy:
++      matrix:
++        python-version: ['3.11', '3.13']
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: ${{ matrix.python-version }}
++      - name: Compile portable boundary
++        run: python -m compileall -q discovery_buddy tools/build_portable_discovery.py tests/test_portable_zipapp.py tests/test_query.py tests/test_scanner.py
++      - name: Run scanner, query, and portable regressions
++        run: python -m unittest -v tests/test_scanner.py tests/test_query.py tests/test_portable_zipapp.py
++      - name: Build and verify deterministic zipapp
++        run: |
++          python tools/build_portable_discovery.py build \
++            --output /tmp/discovery-buddy.pyz \
++            --receipt /tmp/discovery-buddy.pyz.receipt.json
++          python tools/build_portable_discovery.py verify \
++            --output /tmp/discovery-buddy.pyz \
++            --receipt /tmp/discovery-buddy.pyz.receipt.json
++          cd /tmp
++          PYTHONPATH= PYTHONNOUSERSITE=1 python discovery-buddy.pyz --help
+diff --git a/discovery_buddy/_cli_core.py b/discovery_buddy/_cli_core.py
+new file mode 100644
+index 0000000..d391ee1
+--- /dev/null
++++ b/discovery_buddy/_cli_core.py
+@@ -0,0 +1,423 @@
++from __future__ import annotations
++
++import argparse
++import hashlib
++import json
++import os
++from pathlib import Path
++import sys
++import tempfile
++from typing import Any
++
++from .output_lock import OutputWriterBusy, output_writer_lock
++from .scanner import render_markdown, scan_workspace
++
++TRANSACTION_SCHEMA = "axm.discovery-output-transaction/v0.1"
++MAX_TRANSACTION_BYTES = 64 * 1024
++
++
++def _serialized(index: dict) -> tuple[str, str]:
++    return json.dumps(index, ensure_ascii=False, indent=2, sort_keys=True) + "\n", render_markdown(index)
++
++
++def _paths(output_dir: Path, public: bool) -> tuple[Path, Path]:
++    stem = "public-discovery" if public else "local-discovery"
++    return output_dir / f"{stem}.json", output_dir / f"{stem}.md"
++
++
++def _transaction_path(json_path: Path) -> Path:
++    return json_path.parent / f".{json_path.stem}.transaction.json"
++
++
++def _temp_path(path: Path, purpose: str) -> Path:
++    fd, raw_path = tempfile.mkstemp(
++        prefix=f".{path.name}.",
++        suffix=f".{purpose}.tmp",
++        dir=path.parent,
++    )
++    os.close(fd)
++    return Path(raw_path)
++
++
++def _stage_text(path: Path, text: str) -> Path:
++    staged = _temp_path(path, "stage")
++    try:
++        staged.write_text(text, "utf-8")
++    except BaseException:
++        staged.unlink(missing_ok=True)
++        raise
++    return staged
++
++
++def _backup_existing(path: Path) -> Path | None:
++    if path.is_symlink():
++        raise OSError("refusing symlinked discovery output")
++    if not path.exists():
++        return None
++    if not path.is_file():
++        raise OSError("discovery output is not a regular file")
++    backup = _temp_path(path, "backup")
++    try:
++        backup.write_bytes(path.read_bytes())
++    except BaseException:
++        backup.unlink(missing_ok=True)
++        raise
++    return backup
++
++
++def _sha256_regular(path: Path) -> str:
++    if path.is_symlink() or not path.is_file():
++        raise OSError("transaction artifact is not a regular file")
++    return hashlib.sha256(path.read_bytes()).hexdigest()
++
++
++def _is_sha256(value: Any) -> bool:
++    return (
++        isinstance(value, str)
++        and len(value) == 64
++        and all(character in "0123456789abcdef" for character in value)
++    )
++
++
++def _safe_artifact(parent: Path, name: Any) -> Path:
++    if not isinstance(name, str) or not name or Path(name).name != name or name in {".", ".."}:
++        raise OSError("invalid transaction artifact path")
++    return parent / name
++
++
++def _write_transaction(
++    journal_path: Path,
++    targets: list[tuple[Path, Path, Path | None]],
++) -> dict[str, Any]:
++    transaction = {
++        "schema": TRANSACTION_SCHEMA,
++        "targets": [
++            {
++                "target": target.name,
++                "stage": staged.name,
++                "backup": backup.name if backup is not None else None,
++                "new_sha256": _sha256_regular(staged),
++                "old_sha256": _sha256_regular(backup) if backup is not None else None,
++            }
++            for target, staged, backup in targets
++        ],
++    }
++    temporary = _temp_path(journal_path, "journal")
++    try:
++        temporary.write_text(
++            json.dumps(transaction, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
++            "utf-8",
++        )
++        os.replace(temporary, journal_path)
++    finally:
++        temporary.unlink(missing_ok=True)
++    return transaction
++
++
++def _load_transaction(journal_path: Path, expected_targets: tuple[Path, Path]) -> dict[str, Any]:
++    if journal_path.is_symlink() or not journal_path.is_file():
++        raise OSError("transaction journal is not a regular file")
++    if journal_path.stat().st_size > MAX_TRANSACTION_BYTES:
++        raise OSError("transaction journal exceeds size limit")
++
++    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
++        result: dict[str, Any] = {}
++        for key, value in pairs:
++            if key in result:
++                raise ValueError("duplicate transaction key")
++            result[key] = value
++        return result
++
++    try:
++        data = json.loads(journal_path.read_text("utf-8"), object_pairs_hook=reject_duplicate_keys)
++    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
++        raise OSError(f"invalid transaction journal: {exc.__class__.__name__}") from exc
++
++    if not isinstance(data, dict) or data.get("schema") != TRANSACTION_SCHEMA:
++        raise OSError("invalid transaction journal schema")
++    entries = data.get("targets")
++    if not isinstance(entries, list) or len(entries) != 2:
++        raise OSError("invalid transaction target set")
++
++    expected_names = [path.name for path in expected_targets]
++    actual_names = [entry.get("target") if isinstance(entry, dict) else None for entry in entries]
++    if actual_names != expected_names:
++        raise OSError("transaction target mismatch")
++
++    for entry in entries:
++        if not isinstance(entry, dict) or not _is_sha256(entry.get("new_sha256")):
++            raise OSError("invalid transaction target evidence")
++        old_sha = entry.get("old_sha256")
++        if old_sha is not None and not _is_sha256(old_sha):
++            raise OSError("invalid transaction old digest")
++        _safe_artifact(journal_path.parent, entry.get("stage"))
++        backup = entry.get("backup")
++        if backup is not None:
++            _safe_artifact(journal_path.parent, backup)
++        if (old_sha is None) != (backup is None):
++            raise OSError("transaction backup/digest mismatch")
++    return data
++
++
++def _target_digest(path: Path) -> str | None:
++    if path.is_symlink():
++        raise OSError("unsafe symlink at transaction target")
++    if not path.exists():
++        return None
++    return _sha256_regular(path)
++
++
++def _old_state_matches(targets: tuple[Path, Path], transaction: dict[str, Any]) -> bool:
++    return all(
++        _target_digest(target) == entry["old_sha256"]
++        for target, entry in zip(targets, transaction["targets"])
++    )
++
++
++def _cleanup_transaction_artifacts(parent: Path, transaction: dict[str, Any]) -> None:
++    for entry in transaction["targets"]:
++        for field in ("stage", "backup"):
++            name = entry.get(field)
++            if name is not None:
++                _safe_artifact(parent, name).unlink(missing_ok=True)
++
++
++def _restore_target_from_backup(target: Path, backup: Path, expected_sha256: str) -> None:
++    if _sha256_regular(backup) != expected_sha256:
++        raise OSError("transaction backup integrity mismatch")
++    restore = _temp_path(target, "restore")
++    try:
++        restore.write_bytes(backup.read_bytes())
++        if _sha256_regular(restore) != expected_sha256:
++            raise OSError("transaction restore staging mismatch")
++        os.replace(restore, target)
++    finally:
++        restore.unlink(missing_ok=True)
++
++
++def _recover_pair(json_path: Path, md_path: Path) -> str:
++    """Resolve one interrupted two-file publication using only journal-bound evidence."""
++    journal_path = _transaction_path(json_path)
++    targets = (json_path, md_path)
++    transaction = _load_transaction(journal_path, targets)
++    parent = journal_path.parent
++
++    finals_are_new = all(
++        _target_digest(target) == entry["new_sha256"]
++        for target, entry in zip(targets, transaction["targets"])
++    )
++    if finals_are_new:
++        _cleanup_transaction_artifacts(parent, transaction)
++        journal_path.unlink()
++        return "FINALIZED_NEW"
++
++    # Validate every rollback source before changing either final output.
++    for entry in transaction["targets"]:
++        old_sha = entry["old_sha256"]
++        if old_sha is None:
++            continue
++        backup = _safe_artifact(parent, entry["backup"])
++        if _sha256_regular(backup) != old_sha:
++            raise OSError("transaction backup integrity mismatch")
++
++    # Backups are copied rather than consumed so recovery itself can be safely retried.
++    for target, entry in zip(targets, transaction["targets"]):
++        old_sha = entry["old_sha256"]
++        if old_sha is None:
++            if target.is_symlink():
++                raise OSError("unsafe symlink at transaction target")
++            target.unlink(missing_ok=True)
++        else:
++            backup = _safe_artifact(parent, entry["backup"])
++            _restore_target_from_backup(target, backup, old_sha)
++
++    if not _old_state_matches(targets, transaction):
++        raise OSError("rollback verification failed")
++    _cleanup_transaction_artifacts(parent, transaction)
++    journal_path.unlink()
++    return "ROLLED_BACK_LAST_GOOD"
++
++
++def _publish_pair(json_path: Path, json_text: str, md_path: Path, md_text: str) -> None:
++    """Publish one recoverable discovery generation across the JSON/Markdown pair."""
++    journal_path = _transaction_path(json_path)
++    if journal_path.exists() or journal_path.is_symlink():
++        raise OSError("pending discovery output transaction requires recovery")
++
++    targets = ((json_path, json_text), (md_path, md_text))
++    staged: dict[Path, Path] = {}
++    backups: dict[Path, Path | None] = {}
++    published: list[Path] = []
++    transaction: dict[str, Any] | None = None
++
++    try:
++        for path, text in targets:
++            staged[path] = _stage_text(path, text)
++        for path, _text in targets:
++            backups[path] = _backup_existing(path)
++
++        transaction = _write_transaction(
++            journal_path,
++            [(path, staged[path], backups[path]) for path, _text in targets],
++        )
++
++        for path, _text in targets:
++            os.replace(staged[path], path)
++            published.append(path)
++    except OSError as publish_error:
++        rollback_error: OSError | None = None
++        if transaction is not None:
++            for path in reversed(published):
++                entry = transaction["targets"][0 if path == json_path else 1]
++                old_sha = entry["old_sha256"]
++                try:
++                    if old_sha is None:
++                        path.unlink(missing_ok=True)
++                    else:
++                        backup = _safe_artifact(journal_path.parent, entry["backup"])
++                        _restore_target_from_backup(path, backup, old_sha)
++                except OSError as exc:
++                    rollback_error = exc
++                    break
++            if rollback_error is None and not _old_state_matches((json_path, md_path), transaction):
++                rollback_error = OSError("rollback verification failed")
++
++        if rollback_error is not None:
++            raise OSError(
++                f"discovery output publish failed and rollback also failed: {rollback_error.__class__.__name__}"
++            ) from publish_error
++
++        if journal_path.exists() and not journal_path.is_symlink():
++            journal_path.unlink()
++        raise
++    else:
++        # Final outputs are now a complete generation. Keep the journal until cleanup is complete;
++        # if the process dies here, explicit recovery recognizes and finalizes the exact new pair.
++        if transaction is not None:
++            _cleanup_transaction_artifacts(journal_path.parent, transaction)
++        journal_path.unlink()
++    finally:
++        # Before journaling, final paths were never mutated. Once journaled, remaining artifacts
++        # are recovery evidence and must survive an unhandled interruption.
++        if not journal_path.exists() and not journal_path.is_symlink():
++            for temp_path in list(staged.values()) + [p for p in backups.values() if p is not None]:
++                temp_path.unlink(missing_ok=True)
++
++
++def _build_parser() -> argparse.ArgumentParser:
++    parser = argparse.ArgumentParser(prog="discovery-buddy", description="Deterministic local-first AXM repository discovery scanner")
++    sub = parser.add_subparsers(dest="command", required=True)
++    for name in ("scan", "verify"):
++        cmd = sub.add_parser(name)
++        cmd.add_argument("root", nargs="?", default=".")
++        cmd.add_argument("--output-dir", default=".discovery")
++        cmd.add_argument("--max-depth", type=int, default=4)
++        cmd.add_argument("--public", action="store_true", help="emit only explicitly marked public-safe repository metadata")
++    recover = sub.add_parser("recover", help="explicitly recover an interrupted discovery output transaction")
++    recover.add_argument("--output-dir", default=".discovery")
++    recover.add_argument("--public", action="store_true", help="recover the public-safe output pair instead of local output")
++    return parser
++
++
++def _pending_transaction_error(journal_path: Path, out_dir: Path, public: bool) -> int:
++    public_flag = " --public" if public else ""
++    print(
++        f"discovery-buddy: ERROR: interrupted output transaction at {journal_path}; "
++        f"run `python -m discovery_buddy recover --output-dir {out_dir}{public_flag}` first",
++        file=sys.stderr,
++    )
++    return 2
++
++
++def main(argv: list[str] | None = None) -> int:
++    args = _build_parser().parse_args(argv)
++    out_dir = Path(args.output_dir)
++    json_path, md_path = _paths(out_dir, args.public)
++    journal_path = _transaction_path(json_path)
++
++    if args.command == "recover":
++        if not journal_path.exists() and not journal_path.is_symlink():
++            print("discovery-buddy: no interrupted output transaction found")
++            return 0
++        try:
++            with output_writer_lock(json_path):
++                # Another process may have completed recovery between the initial observation and
++                # lock acquisition. Re-check under ownership instead of treating that as damage.
++                if not journal_path.exists() and not journal_path.is_symlink():
++                    print("discovery-buddy: no interrupted output transaction found")
++                    return 0
++                outcome = _recover_pair(json_path, md_path)
++        except OutputWriterBusy:
++            print(
++                f"discovery-buddy: ERROR: DISCOVERY_OUTPUT_BUSY: another scan/recover owns {json_path.name}",
++                file=sys.stderr,
++            )
++            return 2
++        except OSError as exc:
++            print(f"discovery-buddy: ERROR: output recovery failed: {exc}", file=sys.stderr)
++            return 2
++        print(f"discovery-buddy: RECOVERED: {outcome}")
++        return 0
++
++    if args.command == "scan":
++        try:
++            out_dir.mkdir(parents=True, exist_ok=True)
++            with output_writer_lock(json_path):
++                # Ownership begins before workspace observation. A later scanner cannot publish a
++                # newer snapshot and then be overwritten by this older in-flight scan.
++                if journal_path.exists() or journal_path.is_symlink():
++                    return _pending_transaction_error(journal_path, out_dir, args.public)
++                try:
++                    index = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
++                    confirmation = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
++                except (OSError, ValueError) as exc:
++                    print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
++                    return 2
++                if confirmation != index:
++                    print(
++                        "discovery-buddy: ERROR: DISCOVERY_SOURCE_CHANGED: workspace evidence changed between consecutive scans; retry from fresh source state",
++                        file=sys.stderr,
++                    )
++                    return 2
++                # Publish the second observation. Equality means it is byte-for-byte equivalent to
++                # the first deterministic snapshot while keeping the published object nearest to
++                # the final source observation.
++                index = confirmation
++                json_text, md_text = _serialized(index)
++                try:
++                    _publish_pair(json_path, json_text, md_path, md_text)
++                except OSError as exc:
++                    print(f"discovery-buddy: ERROR: output publish failed: {exc.__class__.__name__}", file=sys.stderr)
++                    return 2
++        except OutputWriterBusy:
++            print(
++                f"discovery-buddy: ERROR: DISCOVERY_OUTPUT_BUSY: another scan/recover owns {json_path.name}",
++                file=sys.stderr,
++            )
++            return 2
++        except OSError as exc:
++            print(f"discovery-buddy: ERROR: output coordination failed: {exc}", file=sys.stderr)
++            return 2
++        print(f"discovery-buddy: wrote {json_path} and {md_path} ({index['summary']['repositories']} repos, digest {index['content_sha256']})")
++        return 0
++
++    if journal_path.exists() or journal_path.is_symlink():
++        return _pending_transaction_error(journal_path, out_dir, args.public)
++
++    try:
++        index = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
++    except (OSError, ValueError) as exc:
++        print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
++        return 2
++    json_text, md_text = _serialized(index)
++
++    mismatches = []
++    for path, expected in ((json_path, json_text), (md_path, md_text)):
++        actual = path.read_text("utf-8") if path.is_file() else None
++        if actual != expected:
++            mismatches.append(str(path))
++    if mismatches:
++        print("discovery-buddy: STALE: " + ", ".join(mismatches), file=sys.stderr)
++        return 1
++    print(f"discovery-buddy: PASS ({index['summary']['repositories']} repos, digest {index['content_sha256']})")
++    return 0
+\ No newline at end of file
+diff --git a/discovery_buddy/cli.py b/discovery_buddy/cli.py
+index d391ee1..dfd3e38 100644
+--- a/discovery_buddy/cli.py
++++ b/discovery_buddy/cli.py
+@@ -1,423 +1,64 @@
+ from __future__ import annotations
+ 
+ import argparse
+-import hashlib
+ import json
+-import os
+-from pathlib import Path
+ import sys
+-import tempfile
+-from typing import Any
+ 
+-from .output_lock import OutputWriterBusy, output_writer_lock
+-from .scanner import render_markdown, scan_workspace
++from . import _cli_core as _core
++from .query import load_index, query_capabilities
+ 
+-TRANSACTION_SCHEMA = "axm.discovery-output-transaction/v0.1"
+-MAX_TRANSACTION_BYTES = 64 * 1024
++# Preserve the hardened CLI surface (including private regression hooks) while
++# extending it with the read-only query command. Tests and downstream callers
++# that intentionally patch a CLI-level core hook continue to affect execution.
++_CORE_EXPORTS = tuple(
++    name for name in dir(_core)
++    if not name.startswith("__") and name != "main"
++)
++for _name in _CORE_EXPORTS:
++    globals()[_name] = getattr(_core, _name)
+ 
+ 
+-def _serialized(index: dict) -> tuple[str, str]:
+-    return json.dumps(index, ensure_ascii=False, indent=2, sort_keys=True) + "\n", render_markdown(index)
++def _sync_core_hooks() -> None:
++    for name in _CORE_EXPORTS:
++        setattr(_core, name, globals()[name])
+ 
+ 
+-def _paths(output_dir: Path, public: bool) -> tuple[Path, Path]:
+-    stem = "public-discovery" if public else "local-discovery"
+-    return output_dir / f"{stem}.json", output_dir / f"{stem}.md"
+-
+-
+-def _transaction_path(json_path: Path) -> Path:
+-    return json_path.parent / f".{json_path.stem}.transaction.json"
+-
+-
+-def _temp_path(path: Path, purpose: str) -> Path:
+-    fd, raw_path = tempfile.mkstemp(
+-        prefix=f".{path.name}.",
+-        suffix=f".{purpose}.tmp",
+-        dir=path.parent,
+-    )
+-    os.close(fd)
+-    return Path(raw_path)
+-
+-
+-def _stage_text(path: Path, text: str) -> Path:
+-    staged = _temp_path(path, "stage")
+-    try:
+-        staged.write_text(text, "utf-8")
+-    except BaseException:
+-        staged.unlink(missing_ok=True)
+-        raise
+-    return staged
+-
+-
+-def _backup_existing(path: Path) -> Path | None:
+-    if path.is_symlink():
+-        raise OSError("refusing symlinked discovery output")
+-    if not path.exists():
+-        return None
+-    if not path.is_file():
+-        raise OSError("discovery output is not a regular file")
+-    backup = _temp_path(path, "backup")
+-    try:
+-        backup.write_bytes(path.read_bytes())
+-    except BaseException:
+-        backup.unlink(missing_ok=True)
+-        raise
+-    return backup
+-
+-
+-def _sha256_regular(path: Path) -> str:
+-    if path.is_symlink() or not path.is_file():
+-        raise OSError("transaction artifact is not a regular file")
+-    return hashlib.sha256(path.read_bytes()).hexdigest()
+-
+-
+-def _is_sha256(value: Any) -> bool:
+-    return (
+-        isinstance(value, str)
+-        and len(value) == 64
+-        and all(character in "0123456789abcdef" for character in value)
++def _query_parser() -> argparse.ArgumentParser:
++    parser = argparse.ArgumentParser(
++        prog="discovery-buddy query",
++        description="Query an admitted saved discovery index without executing discovered capabilities.",
+     )
+-
+-
+-def _safe_artifact(parent: Path, name: Any) -> Path:
+-    if not isinstance(name, str) or not name or Path(name).name != name or name in {".", ".."}:
+-        raise OSError("invalid transaction artifact path")
+-    return parent / name
+-
+-
+-def _write_transaction(
+-    journal_path: Path,
+-    targets: list[tuple[Path, Path, Path | None]],
+-) -> dict[str, Any]:
+-    transaction = {
+-        "schema": TRANSACTION_SCHEMA,
+-        "targets": [
+-            {
+-                "target": target.name,
+-                "stage": staged.name,
+-                "backup": backup.name if backup is not None else None,
+-                "new_sha256": _sha256_regular(staged),
+-                "old_sha256": _sha256_regular(backup) if backup is not None else None,
+-            }
+-            for target, staged, backup in targets
+-        ],
+-    }
+-    temporary = _temp_path(journal_path, "journal")
+-    try:
+-        temporary.write_text(
+-            json.dumps(transaction, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
+-            "utf-8",
+-        )
+-        os.replace(temporary, journal_path)
+-    finally:
+-        temporary.unlink(missing_ok=True)
+-    return transaction
+-
+-
+-def _load_transaction(journal_path: Path, expected_targets: tuple[Path, Path]) -> dict[str, Any]:
+-    if journal_path.is_symlink() or not journal_path.is_file():
+-        raise OSError("transaction journal is not a regular file")
+-    if journal_path.stat().st_size > MAX_TRANSACTION_BYTES:
+-        raise OSError("transaction journal exceeds size limit")
+-
+-    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+-        result: dict[str, Any] = {}
+-        for key, value in pairs:
+-            if key in result:
+-                raise ValueError("duplicate transaction key")
+-            result[key] = value
+-        return result
+-
+-    try:
+-        data = json.loads(journal_path.read_text("utf-8"), object_pairs_hook=reject_duplicate_keys)
+-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+-        raise OSError(f"invalid transaction journal: {exc.__class__.__name__}") from exc
+-
+-    if not isinstance(data, dict) or data.get("schema") != TRANSACTION_SCHEMA:
+-        raise OSError("invalid transaction journal schema")
+-    entries = data.get("targets")
+-    if not isinstance(entries, list) or len(entries) != 2:
+-        raise OSError("invalid transaction target set")
+-
+-    expected_names = [path.name for path in expected_targets]
+-    actual_names = [entry.get("target") if isinstance(entry, dict) else None for entry in entries]
+-    if actual_names != expected_names:
+-        raise OSError("transaction target mismatch")
+-
+-    for entry in entries:
+-        if not isinstance(entry, dict) or not _is_sha256(entry.get("new_sha256")):
+-            raise OSError("invalid transaction target evidence")
+-        old_sha = entry.get("old_sha256")
+-        if old_sha is not None and not _is_sha256(old_sha):
+-            raise OSError("invalid transaction old digest")
+-        _safe_artifact(journal_path.parent, entry.get("stage"))
+-        backup = entry.get("backup")
+-        if backup is not None:
+-            _safe_artifact(journal_path.parent, backup)
+-        if (old_sha is None) != (backup is None):
+-            raise OSError("transaction backup/digest mismatch")
+-    return data
+-
+-
+-def _target_digest(path: Path) -> str | None:
+-    if path.is_symlink():
+-        raise OSError("unsafe symlink at transaction target")
+-    if not path.exists():
+-        return None
+-    return _sha256_regular(path)
+-
+-
+-def _old_state_matches(targets: tuple[Path, Path], transaction: dict[str, Any]) -> bool:
+-    return all(
+-        _target_digest(target) == entry["old_sha256"]
+-        for target, entry in zip(targets, transaction["targets"])
+-    )
+-
+-
+-def _cleanup_transaction_artifacts(parent: Path, transaction: dict[str, Any]) -> None:
+-    for entry in transaction["targets"]:
+-        for field in ("stage", "backup"):
+-            name = entry.get(field)
+-            if name is not None:
+-                _safe_artifact(parent, name).unlink(missing_ok=True)
+-
+-
+-def _restore_target_from_backup(target: Path, backup: Path, expected_sha256: str) -> None:
+-    if _sha256_regular(backup) != expected_sha256:
+-        raise OSError("transaction backup integrity mismatch")
+-    restore = _temp_path(target, "restore")
+-    try:
+-        restore.write_bytes(backup.read_bytes())
+-        if _sha256_regular(restore) != expected_sha256:
+-            raise OSError("transaction restore staging mismatch")
+-        os.replace(restore, target)
+-    finally:
+-        restore.unlink(missing_ok=True)
+-
+-
+-def _recover_pair(json_path: Path, md_path: Path) -> str:
+-    """Resolve one interrupted two-file publication using only journal-bound evidence."""
+-    journal_path = _transaction_path(json_path)
+-    targets = (json_path, md_path)
+-    transaction = _load_transaction(journal_path, targets)
+-    parent = journal_path.parent
+-
+-    finals_are_new = all(
+-        _target_digest(target) == entry["new_sha256"]
+-        for target, entry in zip(targets, transaction["targets"])
+-    )
+-    if finals_are_new:
+-        _cleanup_transaction_artifacts(parent, transaction)
+-        journal_path.unlink()
+-        return "FINALIZED_NEW"
+-
+-    # Validate every rollback source before changing either final output.
+-    for entry in transaction["targets"]:
+-        old_sha = entry["old_sha256"]
+-        if old_sha is None:
+-            continue
+-        backup = _safe_artifact(parent, entry["backup"])
+-        if _sha256_regular(backup) != old_sha:
+-            raise OSError("transaction backup integrity mismatch")
+-
+-    # Backups are copied rather than consumed so recovery itself can be safely retried.
+-    for target, entry in zip(targets, transaction["targets"]):
+-        old_sha = entry["old_sha256"]
+-        if old_sha is None:
+-            if target.is_symlink():
+-                raise OSError("unsafe symlink at transaction target")
+-            target.unlink(missing_ok=True)
+-        else:
+-            backup = _safe_artifact(parent, entry["backup"])
+-            _restore_target_from_backup(target, backup, old_sha)
+-
+-    if not _old_state_matches(targets, transaction):
+-        raise OSError("rollback verification failed")
+-    _cleanup_transaction_artifacts(parent, transaction)
+-    journal_path.unlink()
+-    return "ROLLED_BACK_LAST_GOOD"
+-
+-
+-def _publish_pair(json_path: Path, json_text: str, md_path: Path, md_text: str) -> None:
+-    """Publish one recoverable discovery generation across the JSON/Markdown pair."""
+-    journal_path = _transaction_path(json_path)
+-    if journal_path.exists() or journal_path.is_symlink():
+-        raise OSError("pending discovery output transaction requires recovery")
+-
+-    targets = ((json_path, json_text), (md_path, md_text))
+-    staged: dict[Path, Path] = {}
+-    backups: dict[Path, Path | None] = {}
+-    published: list[Path] = []
+-    transaction: dict[str, Any] | None = None
+-
+-    try:
+-        for path, text in targets:
+-            staged[path] = _stage_text(path, text)
+-        for path, _text in targets:
+-            backups[path] = _backup_existing(path)
+-
+-        transaction = _write_transaction(
+-            journal_path,
+-            [(path, staged[path], backups[path]) for path, _text in targets],
+-        )
+-
+-        for path, _text in targets:
+-            os.replace(staged[path], path)
+-            published.append(path)
+-    except OSError as publish_error:
+-        rollback_error: OSError | None = None
+-        if transaction is not None:
+-            for path in reversed(published):
+-                entry = transaction["targets"][0 if path == json_path else 1]
+-                old_sha = entry["old_sha256"]
+-                try:
+-                    if old_sha is None:
+-                        path.unlink(missing_ok=True)
+-                    else:
+-                        backup = _safe_artifact(journal_path.parent, entry["backup"])
+-                        _restore_target_from_backup(path, backup, old_sha)
+-                except OSError as exc:
+-                    rollback_error = exc
+-                    break
+-            if rollback_error is None and not _old_state_matches((json_path, md_path), transaction):
+-                rollback_error = OSError("rollback verification failed")
+-
+-        if rollback_error is not None:
+-            raise OSError(
+-                f"discovery output publish failed and rollback also failed: {rollback_error.__class__.__name__}"
+-            ) from publish_error
+-
+-        if journal_path.exists() and not journal_path.is_symlink():
+-            journal_path.unlink()
+-        raise
+-    else:
+-        # Final outputs are now a complete generation. Keep the journal until cleanup is complete;
+-        # if the process dies here, explicit recovery recognizes and finalizes the exact new pair.
+-        if transaction is not None:
+-            _cleanup_transaction_artifacts(journal_path.parent, transaction)
+-        journal_path.unlink()
+-    finally:
+-        # Before journaling, final paths were never mutated. Once journaled, remaining artifacts
+-        # are recovery evidence and must survive an unhandled interruption.
+-        if not journal_path.exists() and not journal_path.is_symlink():
+-            for temp_path in list(staged.values()) + [p for p in backups.values() if p is not None]:
+-                temp_path.unlink(missing_ok=True)
+-
+-
+-def _build_parser() -> argparse.ArgumentParser:
+-    parser = argparse.ArgumentParser(prog="discovery-buddy", description="Deterministic local-first AXM repository discovery scanner")
+-    sub = parser.add_subparsers(dest="command", required=True)
+-    for name in ("scan", "verify"):
+-        cmd = sub.add_parser(name)
+-        cmd.add_argument("root", nargs="?", default=".")
+-        cmd.add_argument("--output-dir", default=".discovery")
+-        cmd.add_argument("--max-depth", type=int, default=4)
+-        cmd.add_argument("--public", action="store_true", help="emit only explicitly marked public-safe repository metadata")
+-    recover = sub.add_parser("recover", help="explicitly recover an interrupted discovery output transaction")
+-    recover.add_argument("--output-dir", default=".discovery")
+-    recover.add_argument("--public", action="store_true", help="recover the public-safe output pair instead of local output")
++    parser.add_argument("index", help="path to a saved local-discovery.json or public-discovery.json")
++    parser.add_argument("--capability-id", help="exact capability id")
++    parser.add_argument("--provider", help="exact provider value")
++    parser.add_argument("--consumer", help="exact consumer value")
++    parser.add_argument("--status", help="exact non-null status")
++    parser.add_argument("--repo", help="exact public repo id or local workspace-relative repo path")
+     return parser
+ 
+ 
+-def _pending_transaction_error(journal_path: Path, out_dir: Path, public: bool) -> int:
+-    public_flag = " --public" if public else ""
+-    print(
+-        f"discovery-buddy: ERROR: interrupted output transaction at {journal_path}; "
+-        f"run `python -m discovery_buddy recover --output-dir {out_dir}{public_flag}` first",
+-        file=sys.stderr,
+-    )
+-    return 2
+-
+-
+-def main(argv: list[str] | None = None) -> int:
+-    args = _build_parser().parse_args(argv)
+-    out_dir = Path(args.output_dir)
+-    json_path, md_path = _paths(out_dir, args.public)
+-    journal_path = _transaction_path(json_path)
+-
+-    if args.command == "recover":
+-        if not journal_path.exists() and not journal_path.is_symlink():
+-            print("discovery-buddy: no interrupted output transaction found")
+-            return 0
+-        try:
+-            with output_writer_lock(json_path):
+-                # Another process may have completed recovery between the initial observation and
+-                # lock acquisition. Re-check under ownership instead of treating that as damage.
+-                if not journal_path.exists() and not journal_path.is_symlink():
+-                    print("discovery-buddy: no interrupted output transaction found")
+-                    return 0
+-                outcome = _recover_pair(json_path, md_path)
+-        except OutputWriterBusy:
+-            print(
+-                f"discovery-buddy: ERROR: DISCOVERY_OUTPUT_BUSY: another scan/recover owns {json_path.name}",
+-                file=sys.stderr,
+-            )
+-            return 2
+-        except OSError as exc:
+-            print(f"discovery-buddy: ERROR: output recovery failed: {exc}", file=sys.stderr)
+-            return 2
+-        print(f"discovery-buddy: RECOVERED: {outcome}")
+-        return 0
+-
+-    if args.command == "scan":
+-        try:
+-            out_dir.mkdir(parents=True, exist_ok=True)
+-            with output_writer_lock(json_path):
+-                # Ownership begins before workspace observation. A later scanner cannot publish a
+-                # newer snapshot and then be overwritten by this older in-flight scan.
+-                if journal_path.exists() or journal_path.is_symlink():
+-                    return _pending_transaction_error(journal_path, out_dir, args.public)
+-                try:
+-                    index = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
+-                    confirmation = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
+-                except (OSError, ValueError) as exc:
+-                    print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
+-                    return 2
+-                if confirmation != index:
+-                    print(
+-                        "discovery-buddy: ERROR: DISCOVERY_SOURCE_CHANGED: workspace evidence changed between consecutive scans; retry from fresh source state",
+-                        file=sys.stderr,
+-                    )
+-                    return 2
+-                # Publish the second observation. Equality means it is byte-for-byte equivalent to
+-                # the first deterministic snapshot while keeping the published object nearest to
+-                # the final source observation.
+-                index = confirmation
+-                json_text, md_text = _serialized(index)
+-                try:
+-                    _publish_pair(json_path, json_text, md_path, md_text)
+-                except OSError as exc:
+-                    print(f"discovery-buddy: ERROR: output publish failed: {exc.__class__.__name__}", file=sys.stderr)
+-                    return 2
+-        except OutputWriterBusy:
+-            print(
+-                f"discovery-buddy: ERROR: DISCOVERY_OUTPUT_BUSY: another scan/recover owns {json_path.name}",
+-                file=sys.stderr,
+-            )
+-            return 2
+-        except OSError as exc:
+-            print(f"discovery-buddy: ERROR: output coordination failed: {exc}", file=sys.stderr)
+-            return 2
+-        print(f"discovery-buddy: wrote {json_path} and {md_path} ({index['summary']['repositories']} repos, digest {index['content_sha256']})")
+-        return 0
+-
+-    if journal_path.exists() or journal_path.is_symlink():
+-        return _pending_transaction_error(journal_path, out_dir, args.public)
+-
++def _query_main(argv: list[str]) -> int:
++    args = _query_parser().parse_args(argv)
+     try:
+-        index = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
++        index = load_index(args.index)
++        result = query_capabilities(
++            index,
++            capability_id=args.capability_id,
++            provider=args.provider,
++            consumer=args.consumer,
++            status=args.status,
++            repo=args.repo,
++        )
+     except (OSError, ValueError) as exc:
+         print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
+         return 2
+-    json_text, md_text = _serialized(index)
++    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
++    return 0 if result["summary"]["matches"] else 1
+ 
+-    mismatches = []
+-    for path, expected in ((json_path, json_text), (md_path, md_text)):
+-        actual = path.read_text("utf-8") if path.is_file() else None
+-        if actual != expected:
+-            mismatches.append(str(path))
+-    if mismatches:
+-        print("discovery-buddy: STALE: " + ", ".join(mismatches), file=sys.stderr)
+-        return 1
+-    print(f"discovery-buddy: PASS ({index['summary']['repositories']} repos, digest {index['content_sha256']})")
+-    return 0
+\ No newline at end of file
++
++def main(argv: list[str] | None = None) -> int:
++    args = list(sys.argv[1:] if argv is None else argv)
++    if args and args[0] == "query":
++        return _query_main(args[1:])
++    _sync_core_hooks()
++    return _core.main(args)
+diff --git a/discovery_buddy/query.py b/discovery_buddy/query.py
+new file mode 100644
+index 0000000..f7d2990
+--- /dev/null
++++ b/discovery_buddy/query.py
+@@ -0,0 +1,210 @@
++from __future__ import annotations
++
++import hashlib
++import json
++from pathlib import Path
++from typing import Any
++
++from .scanner import CAPABILITY_SCHEMA, SCHEMA_VERSION
++
++QUERY_SCHEMA = "axm.discovery-query/v0.1"
++MAX_INDEX_BYTES = 16 * 1024 * 1024
++_HEX = frozenset("0123456789abcdef")
++
++
++def _canonical_json(value: Any) -> str:
++    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++
++
++def _sha256(value: Any) -> str:
++    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
++
++
++def _is_sha256(value: Any) -> bool:
++    return isinstance(value, str) and len(value) == 64 and all(ch in _HEX for ch in value)
++
++
++def _repo_identity(record: dict[str, Any], visibility: str) -> tuple[str, str]:
++    if visibility == "PUBLIC_SAFE_DECLARED_ONLY":
++        repo = record.get("repo")
++        display = record.get("display_name")
++        if not isinstance(repo, str) or not repo:
++            raise ValueError("public repository record is missing repo identity")
++        return repo, display if isinstance(display, str) and display else repo
++    path = record.get("path")
++    name = record.get("name")
++    if not isinstance(path, str) or not path:
++        raise ValueError("local repository record is missing workspace-relative path")
++    return path, name if isinstance(name, str) and name else path
++
++
++def _validate_capability(record: Any) -> dict[str, Any]:
++    if not isinstance(record, dict) or record.get("schema") != CAPABILITY_SCHEMA:
++        raise ValueError("invalid capability record schema")
++    capability_id = record.get("id")
++    source = record.get("source")
++    line = record.get("line")
++    providers = record.get("providers")
++    consumers = record.get("consumers")
++    status = record.get("status")
++    if not isinstance(capability_id, str) or not capability_id.strip():
++        raise ValueError("capability record is missing id")
++    if not isinstance(source, str) or not source:
++        raise ValueError(f"capability {capability_id!r} is missing source")
++    if not isinstance(line, int) or isinstance(line, bool) or line < 1:
++        raise ValueError(f"capability {capability_id!r} has invalid source line")
++    if not isinstance(providers, list) or any(not isinstance(value, str) for value in providers):
++        raise ValueError(f"capability {capability_id!r} has invalid providers")
++    if not isinstance(consumers, list) or any(not isinstance(value, str) for value in consumers):
++        raise ValueError(f"capability {capability_id!r} has invalid consumers")
++    if status is not None and not isinstance(status, str):
++        raise ValueError(f"capability {capability_id!r} has invalid status")
++    return record
++
++
++def validate_index(index: Any) -> dict[str, Any]:
++    """Validate a saved Discovery Buddy index before another tool consumes it."""
++    if not isinstance(index, dict) or index.get("schema") != SCHEMA_VERSION:
++        raise ValueError("unsupported discovery index schema")
++    visibility = index.get("visibility")
++    if visibility not in {"LOCAL_ONLY", "PUBLIC_SAFE_DECLARED_ONLY"}:
++        raise ValueError("unsupported discovery index visibility")
++    policy = index.get("policy")
++    repositories = index.get("repositories")
++    summary = index.get("summary")
++    claimed_digest = index.get("content_sha256")
++    if not isinstance(policy, dict) or not isinstance(repositories, list) or not isinstance(summary, dict):
++        raise ValueError("discovery index is missing policy, repositories, or summary")
++    if not _is_sha256(claimed_digest):
++        raise ValueError("discovery index has invalid content_sha256")
++
++    digest_payload = {"schema": SCHEMA_VERSION, "policy": policy, "repositories": repositories}
++    actual_digest = _sha256(digest_payload)
++    if claimed_digest != actual_digest:
++        raise ValueError("discovery index content digest mismatch")
++
++    capability_count = 0
++    beacon_count = 0
++    identities: set[str] = set()
++    for repository in repositories:
++        if not isinstance(repository, dict):
++            raise ValueError("invalid repository record")
++        identity, _display = _repo_identity(repository, visibility)
++        if identity in identities:
++            raise ValueError(f"duplicate repository identity: {identity}")
++        identities.add(identity)
++        capabilities = repository.get("capabilities")
++        beacon = repository.get("beacon")
++        if not isinstance(capabilities, dict) or not isinstance(capabilities.get("records"), list):
++            raise ValueError(f"repository {identity!r} is missing capability records")
++        if not isinstance(beacon, dict):
++            raise ValueError(f"repository {identity!r} is missing beacon evidence")
++        for record in capabilities["records"]:
++            _validate_capability(record)
++            capability_count += 1
++        if beacon.get("present") is True:
++            beacon_count += 1
++
++    expected_summary = {
++        "repositories": len(repositories),
++        "capability_records": capability_count,
++        "beacons": beacon_count,
++    }
++    for key, expected in expected_summary.items():
++        if summary.get(key) != expected:
++            raise ValueError(f"discovery index summary mismatch for {key}")
++    return index
++
++
++def load_index(path: Path | str) -> dict[str, Any]:
++    source = Path(path)
++    if source.is_symlink():
++        raise ValueError("discovery index path must not be a symlink")
++    try:
++        size = source.stat().st_size
++    except OSError as exc:
++        raise ValueError(f"discovery index is unreadable: {exc.__class__.__name__}") from exc
++    if size > MAX_INDEX_BYTES:
++        raise ValueError(f"discovery index exceeds {MAX_INDEX_BYTES} bytes")
++    try:
++        raw = source.read_bytes()
++    except OSError as exc:
++        raise ValueError(f"discovery index is unreadable: {exc.__class__.__name__}") from exc
++    try:
++        index = json.loads(raw.decode("utf-8-sig"))
++    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
++        raise ValueError(f"discovery index is invalid JSON: {exc.__class__.__name__}") from exc
++    return validate_index(index)
++
++
++def query_capabilities(
++    index: dict[str, Any],
++    *,
++    capability_id: str | None = None,
++    provider: str | None = None,
++    consumer: str | None = None,
++    status: str | None = None,
++    repo: str | None = None,
++) -> dict[str, Any]:
++    """Return deterministic capability candidates without selecting or executing one."""
++    validate_index(index)
++    filters = {
++        "capability_id": capability_id,
++        "provider": provider,
++        "consumer": consumer,
++        "status": status,
++        "repo": repo,
++    }
++    visibility = index["visibility"]
++    candidates: list[dict[str, Any]] = []
++    for repository in index["repositories"]:
++        identity, display_name = _repo_identity(repository, visibility)
++        if repo is not None and identity != repo:
++            continue
++        for record in repository["capabilities"]["records"]:
++            record = _validate_capability(record)
++            if capability_id is not None and record["id"] != capability_id:
++                continue
++            if provider is not None and provider not in record["providers"]:
++                continue
++            if consumer is not None and consumer not in record["consumers"]:
++                continue
++            if status is not None and record["status"] != status:
++                continue
++            candidates.append({
++                "repository": identity,
++                "display_name": display_name,
++                "capability": {
++                    "schema": record["schema"],
++                    "id": record["id"],
++                    "providers": list(record["providers"]),
++                    "consumers": list(record["consumers"]),
++                    "status": record["status"],
++                    "source": record["source"],
++                    "line": record["line"],
++                },
++            })
++    candidates.sort(key=lambda row: (
++        row["capability"]["id"],
++        row["repository"],
++        row["capability"]["source"],
++        row["capability"]["line"],
++    ))
++    body = {
++        "schema": QUERY_SCHEMA,
++        "source_schema": index["schema"],
++        "source_visibility": visibility,
++        "source_content_sha256": index["content_sha256"],
++        "filters": filters,
++        "summary": {"matches": len(candidates)},
++        "candidates": candidates,
++        "authority": {
++            "classification": "DISCOVERY_EVIDENCE_ONLY",
++            "execute": False,
++            "install": False,
++            "select": False,
++            "merge": False,
++            "canon": False,
++        },
++    }
++    return {**body, "query_sha256": _sha256(body)}
+diff --git a/docs/DISCOVERY_QUERY.md b/docs/DISCOVERY_QUERY.md
+new file mode 100644
+index 0000000..84ace18
+--- /dev/null
++++ b/docs/DISCOVERY_QUERY.md
+@@ -0,0 +1,54 @@
++# Discovery capability query
++
++`discovery-buddy query` is a read-only bridge from a saved `axm.discovery-index/v0.1` file to deterministic capability candidates.
++
++It exists so a consumer does not need to reimplement Discovery Buddy's index parsing merely to answer questions such as “which declared provider exposes this exact capability id?”. It does **not** execute, install, select, rank, merge, or promote a discovered capability.
++
++## Usage
++
++```bash
++python -m discovery_buddy query /tmp/axm-discovery/public-discovery.json \
++  --capability-id axm.example.capability/v1 \
++  --provider example.cli
++```
++
++Exact filters are available for capability id, provider, consumer, status, and repository. Filters are combined with logical AND. Repository means the public `owner/repo` identity in a public-safe index and the workspace-relative repository path in a local-only index.
++
++Exit codes are intentionally gate-friendly:
++
++- `0`: the input index is valid and at least one candidate matched;
++- `1`: the input index is valid and no candidate matched;
++- `2`: the input index is invalid or unreadable.
++
++## Admission before query
++
++The query boundary does not trust a JSON file merely because it has the right filename. Before returning candidates it requires:
++
++- exact discovery-index schema and supported visibility;
++- a valid 64-character lowercase content digest;
++- recomputation of the scanner's canonical `schema + policy + repositories` digest;
++- repository identity uniqueness;
++- valid normalized capability record shapes;
++- exact repository, capability-record, and beacon summary counts;
++- a regular non-symlink input path within the bounded file-size limit.
++
++The summary check is separate on purpose: `summary` is outside the scanner's existing `content_sha256` payload, so query admission independently derives it instead of trusting it.
++
++## Output
++
++The result schema is `axm.discovery-query/v0.1`. It carries:
++
++- the source index schema, visibility, and exact `content_sha256`;
++- the exact filters that were applied;
++- deterministic candidate ordering;
++- repository identity plus the normalized capability record and its source line;
++- a deterministic `query_sha256` over the complete unsigned query body;
++- an explicit `DISCOVERY_EVIDENCE_ONLY` authority block.
++
++That authority block is always false for execution, installation, selection, merge, and CANON authority.
++
++## Truth boundary
++
++A match proves only that a capability declaration matching the exact filters exists in the admitted saved discovery index. It does not prove that the provider still exists on disk, that its runtime works, that the declaration is semantically correct, that the source author is authenticated, or that a consumer should adopt it.
++
++A real consumer should treat the result as a provider candidate and apply its own source/provenance, runtime, policy, and acceptance gates before use.
+diff --git a/docs/PORTABLE_ZIPAPP.md b/docs/PORTABLE_ZIPAPP.md
+new file mode 100644
+index 0000000..684c9f0
+--- /dev/null
++++ b/docs/PORTABLE_ZIPAPP.md
+@@ -0,0 +1,55 @@
++# Portable Discovery Buddy zipapp
++
++## Purpose
++
++Discovery Buddy's scanner and capability-query boundary are useful outside this repository. This adapter makes the exact dependency-free Python package runnable as one local file without copying its implementation into a consumer repository and without requiring a Python package registry.
++
++Build from a reviewed source checkout:
++
++```bash
++python tools/build_portable_discovery.py build \
++  --output dist/discovery-buddy.pyz \
++  --receipt dist/discovery-buddy.pyz.receipt.json
++```
++
++Verify that both files still match the current `discovery_buddy/**/*.py` source exactly:
++
++```bash
++python tools/build_portable_discovery.py verify \
++  --output dist/discovery-buddy.pyz \
++  --receipt dist/discovery-buddy.pyz.receipt.json
++```
++
++Then move or copy the two generated files wherever the local consumer needs them and invoke the archive with Python 3.11+:
++
++```bash
++python /path/to/discovery-buddy.pyz scan /path/to/workspace --output-dir /tmp/axm-discovery
++python /path/to/discovery-buddy.pyz query /tmp/axm-discovery/local-discovery.json \
++  --capability-id axm.example.capability/v1
++```
++
++No install step, account, package registry, AI model, network service, or third-party Python package is required.
++
++## Deterministic package contract
++
++`tools/build_portable_discovery.py` packages only Python source under `discovery_buddy/` plus a generated root `__main__.py`.
++
++The archive uses:
++
++- stable lexical entry ordering;
++- fixed ZIP timestamps and file modes;
++- stored, uncompressed entries so zlib-version differences cannot change package bytes;
++- exact source-byte SHA-256 evidence;
++- a sidecar `axm.discovery-portable-zipapp/v0.1` receipt bound to the final archive SHA-256;
++- fail-closed rejection of symlinked package members;
++- exact rebuild verification instead of trusting the sidecar receipt by itself.
++
++Tests execute the generated archive from a directory outside the repository with `PYTHONPATH` removed, then run the real `scan -> verify -> query` path. That is the portability claim: the consumer needs the zipapp, Python, and the paths it explicitly chooses—not a Discovery Buddy checkout.
++
++## Authority and provenance boundary
++
++The generated receipt is deterministic integrity evidence. It is not a signature and does not authenticate who produced the archive.
++
++Running the zipapp gives the same bounded scanner/query behavior as the packaged source. It does **not** grant a discovered capability execution, installation, automatic selection, merge, promotion, or CANON authority. A query hit remains `DISCOVERY_EVIDENCE_ONLY`; a consumer must still perform its own source, policy, provenance, compatibility, and runtime checks before using a provider.
++
++The builder does not publish to PyPI, create a release, upload an artifact, mutate a scanned repository, or install another AXM repository. Generated files are ordinary local build outputs and are not canonical source state.
+diff --git a/tests/test_portable_zipapp.py b/tests/test_portable_zipapp.py
+new file mode 100644
+index 0000000..c22b82d
+--- /dev/null
++++ b/tests/test_portable_zipapp.py
+@@ -0,0 +1,198 @@
++from __future__ import annotations
++
++import importlib.util
++import json
++import os
++from pathlib import Path
++import subprocess
++import sys
++import tempfile
++import unittest
++import zipfile
++
++
++ROOT = Path(__file__).resolve().parents[1]
++BUILDER = ROOT / "tools" / "build_portable_discovery.py"
++
++
++def _run(args: list[str], *, cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
++    env = os.environ.copy()
++    env.pop("PYTHONPATH", None)
++    env["PYTHONNOUSERSITE"] = "1"
++    return subprocess.run(
++        args,
++        cwd=cwd,
++        env=env,
++        check=check,
++        capture_output=True,
++        text=True,
++    )
++
++
++class PortableZipappTests(unittest.TestCase):
++    def test_build_is_byte_reproducible_and_inventory_bounded(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            tmp_path = Path(tmp)
++            first = tmp_path / "first.pyz"
++            first_receipt = tmp_path / "first.receipt.json"
++            second = tmp_path / "second.pyz"
++            second_receipt = tmp_path / "second.receipt.json"
++
++            _run([sys.executable, str(BUILDER), "build", "--output", str(first), "--receipt", str(first_receipt)])
++            _run([sys.executable, str(BUILDER), "build", "--output", str(second), "--receipt", str(second_receipt)])
++            self.assertEqual(first.read_bytes(), second.read_bytes())
++
++            receipt = json.loads(first_receipt.read_text("utf-8"))
++            self.assertEqual(receipt["schema"], "axm.discovery-portable-zipapp/v0.1")
++            self.assertEqual(receipt["authority"]["classification"], "PORTABLE_TOOL_ONLY")
++            self.assertFalse(receipt["authority"]["discovered_capability_execution"])
++            self.assertFalse(receipt["authority"]["automatic_selection"])
++            self.assertFalse(receipt["authority"]["discovered_capability_installation"])
++            self.assertFalse(receipt["authority"]["merge"])
++            self.assertFalse(receipt["authority"]["canon"])
++
++            with zipfile.ZipFile(first) as archive:
++                names = archive.namelist()
++            expected_sources = sorted(
++                path.relative_to(ROOT).as_posix()
++                for path in (ROOT / "discovery_buddy").glob("*.py")
++            )
++            self.assertEqual(names, ["__main__.py", *expected_sources])
++            self.assertTrue(all(not name.startswith(("tests/", "docs/", ".github/")) for name in names))
++
++            verified = _run(
++                [sys.executable, str(BUILDER), "verify", "--output", str(first), "--receipt", str(first_receipt)]
++            )
++            self.assertIn("portable-discovery: PASS", verified.stdout)
++
++    def test_zipapp_runs_scan_verify_and_query_from_unrelated_directory(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            tmp_path = Path(tmp)
++            artifact = tmp_path / "discovery-buddy.pyz"
++            receipt = tmp_path / "discovery-buddy.pyz.receipt.json"
++            _run([sys.executable, str(BUILDER), "build", "--output", str(artifact), "--receipt", str(receipt)])
++
++            workspace = tmp_path / "workspace"
++            provider = workspace / "provider"
++            (provider / ".git" / "refs" / "heads").mkdir(parents=True)
++            (provider / ".git" / "HEAD").write_text("ref: refs/heads/main\n", "ascii")
++            (provider / ".git" / "refs" / "heads" / "main").write_text("a" * 40 + "\n", "ascii")
++            (provider / ".axm").mkdir()
++            (provider / ".axm" / "discovery-public.json").write_text(
++                json.dumps(
++                    {
++                        "schema": "axm.discovery-public/v1",
++                        "public": True,
++                        "repo": "smoke/provider",
++                        "display_name": "Smoke Provider",
++                    }
++                )
++                + "\n",
++                "utf-8",
++            )
++            (provider / "registry").mkdir()
++            (provider / "registry" / "capabilities.jsonl").write_text(
++                json.dumps(
++                    {
++                        "id": "axm.smoke.capability/v1",
++                        "providers": ["smoke.cli"],
++                        "consumers": [],
++                        "status": "TEST",
++                    },
++                    sort_keys=True,
++                )
++                + "\n",
++                "utf-8",
++            )
++
++            out = tmp_path / "out"
++            unrelated = tmp_path / "consumer"
++            unrelated.mkdir()
++            _run(
++                [
++                    sys.executable,
++                    str(artifact),
++                    "scan",
++                    str(workspace),
++                    "--output-dir",
++                    str(out),
++                    "--public",
++                ],
++                cwd=unrelated,
++            )
++            _run(
++                [
++                    sys.executable,
++                    str(artifact),
++                    "verify",
++                    str(workspace),
++                    "--output-dir",
++                    str(out),
++                    "--public",
++                ],
++                cwd=unrelated,
++            )
++            result = _run(
++                [
++                    sys.executable,
++                    str(artifact),
++                    "query",
++                    str(out / "public-discovery.json"),
++                    "--capability-id",
++                    "axm.smoke.capability/v1",
++                    "--provider",
++                    "smoke.cli",
++                ],
++                cwd=unrelated,
++            )
++            payload = json.loads(result.stdout)
++            self.assertEqual(payload["summary"], {"matches": 1})
++            self.assertEqual(payload["candidates"][0]["repository"], "smoke/provider")
++            self.assertEqual(payload["authority"]["classification"], "DISCOVERY_EVIDENCE_ONLY")
++            self.assertTrue(
++                all(
++                    payload["authority"][key] is False
++                    for key in ("execute", "install", "select", "merge", "canon")
++                )
++            )
++
++    def test_verify_rejects_tampered_artifact(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            tmp_path = Path(tmp)
++            artifact = tmp_path / "discovery-buddy.pyz"
++            receipt = tmp_path / "receipt.json"
++            _run([sys.executable, str(BUILDER), "build", "--output", str(artifact), "--receipt", str(receipt)])
++            artifact.write_bytes(artifact.read_bytes() + b"tamper")
++            result = _run(
++                [sys.executable, str(BUILDER), "verify", "--output", str(artifact), "--receipt", str(receipt)],
++                check=False,
++            )
++            self.assertEqual(result.returncode, 2)
++            self.assertIn("HOLD", result.stderr)
++
++    def test_source_symlink_is_rejected(self) -> None:
++        spec = importlib.util.spec_from_file_location("portable_builder", BUILDER)
++        self.assertIsNotNone(spec)
++        self.assertIsNotNone(spec.loader)
++        module = importlib.util.module_from_spec(spec)
++        sys.modules[spec.name] = module
++        spec.loader.exec_module(module)
++
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            package = root / "discovery_buddy"
++            package.mkdir()
++            for name in ("__init__.py", "__main__.py", "cli.py", "scanner.py", "query.py"):
++                (package / name).write_text("# fixture\n", "utf-8")
++            target = root / "outside.py"
++            target.write_text("# outside\n", "utf-8")
++            try:
++                (package / "linked.py").symlink_to(target)
++            except (OSError, NotImplementedError):
++                self.skipTest("symlinks unavailable on this platform")
++            with self.assertRaisesRegex(ValueError, "symlink"):
++                module._collect_sources(root)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_query.py b/tests/test_query.py
+new file mode 100644
+index 0000000..337d9f2
+--- /dev/null
++++ b/tests/test_query.py
+@@ -0,0 +1,122 @@
++from __future__ import annotations
++
++from contextlib import redirect_stderr, redirect_stdout
++import io
++import json
++from pathlib import Path
++import tempfile
++import unittest
++
++from discovery_buddy.cli import main
++from discovery_buddy.query import QUERY_SCHEMA, load_index, query_capabilities, validate_index
++from discovery_buddy.scanner import scan_workspace
++
++
++class CapabilityQueryTests(unittest.TestCase):
++    def _repo(self, root: Path, name: str, public_repo: str, capability_id: str, *, provider: str, status: str = "TEST") -> Path:
++        repo = root / name
++        (repo / ".git" / "refs" / "heads").mkdir(parents=True)
++        (repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n", "ascii")
++        (repo / ".git" / "refs" / "heads" / "main").write_text("1" * 40 + "\n", "ascii")
++        (repo / ".axm").mkdir()
++        (repo / ".axm" / "discovery-public.json").write_text(json.dumps({
++            "schema": "axm.discovery-public/v1",
++            "public": True,
++            "repo": public_repo,
++            "display_name": name,
++        }) + "\n", "utf-8")
++        (repo / "registry").mkdir()
++        (repo / "registry" / "capabilities.jsonl").write_text(json.dumps({
++            "id": capability_id,
++            "providers": [provider],
++            "consumers": ["explicit-consumer"],
++            "status": status,
++        }, sort_keys=True) + "\n", "utf-8")
++        return repo
++
++    def _saved_public_index(self, root: Path) -> tuple[dict, Path]:
++        self._repo(root, "alpha", "example/alpha", "axm.demo.render/v1", provider="alpha.cli")
++        self._repo(root, "beta", "example/beta", "axm.demo.render/v1", provider="beta.api", status="WORKING")
++        index = scan_workspace(root, public=True)
++        path = root / "public-discovery.json"
++        path.write_text(json.dumps(index, ensure_ascii=False, indent=2, sort_keys=True) + "\n", "utf-8")
++        return index, path
++
++    def test_query_preserves_lineage_and_grants_no_authority(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            index, _path = self._saved_public_index(Path(tmp))
++            result = query_capabilities(index, capability_id="axm.demo.render/v1", provider="beta.api")
++
++        self.assertEqual(QUERY_SCHEMA, result["schema"])
++        self.assertEqual(index["content_sha256"], result["source_content_sha256"])
++        self.assertEqual(1, result["summary"]["matches"])
++        self.assertEqual("example/beta", result["candidates"][0]["repository"])
++        self.assertEqual("registry/capabilities.jsonl", result["candidates"][0]["capability"]["source"])
++        self.assertEqual("DISCOVERY_EVIDENCE_ONLY", result["authority"]["classification"])
++        self.assertFalse(any(result["authority"][key] for key in ("execute", "install", "select", "merge", "canon")))
++        self.assertEqual(64, len(result["query_sha256"]))
++
++    def test_cli_returns_one_for_valid_no_match_and_two_for_invalid_index(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            _index, path = self._saved_public_index(Path(tmp))
++            out = io.StringIO()
++            with redirect_stdout(out):
++                code = main(["query", str(path), "--capability-id", "missing.capability"])
++            self.assertEqual(1, code)
++            self.assertEqual(0, json.loads(out.getvalue())["summary"]["matches"])
++
++            tampered = json.loads(path.read_text("utf-8"))
++            tampered["repositories"][0]["capabilities"]["records"][0]["id"] = "forged.capability"
++            path.write_text(json.dumps(tampered), "utf-8")
++            err = io.StringIO()
++            with redirect_stderr(err):
++                code = main(["query", str(path)])
++            self.assertEqual(2, code)
++            self.assertIn("content digest mismatch", err.getvalue())
++
++    def test_summary_drift_is_rejected_even_though_summary_is_outside_content_digest(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            index, _path = self._saved_public_index(Path(tmp))
++            index["summary"]["capability_records"] += 1
++            with self.assertRaisesRegex(ValueError, "summary mismatch"):
++                validate_index(index)
++
++    def test_invalid_capability_shape_fails_closed_after_resealing_index(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            index, _path = self._saved_public_index(Path(tmp))
++            record = index["repositories"][0]["capabilities"]["records"][0]
++            record["providers"] = "not-a-list"
++            payload = {
++                "schema": index["schema"],
++                "policy": index["policy"],
++                "repositories": index["repositories"],
++            }
++            import hashlib
++            canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++            index["content_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
++            with self.assertRaisesRegex(ValueError, "invalid providers"):
++                validate_index(index)
++
++    def test_saved_index_symlink_is_rejected(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            _index, path = self._saved_public_index(root)
++            link = root / "linked-index.json"
++            try:
++                link.symlink_to(path.name)
++            except (OSError, NotImplementedError):
++                self.skipTest("symlink creation unavailable")
++            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
++                load_index(link)
++
++    def test_exact_filters_are_anded_and_results_are_deterministic(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            index, _path = self._saved_public_index(Path(tmp))
++            first = query_capabilities(index, capability_id="axm.demo.render/v1", consumer="explicit-consumer", status="TEST")
++            second = query_capabilities(index, capability_id="axm.demo.render/v1", consumer="explicit-consumer", status="TEST")
++        self.assertEqual(first, second)
++        self.assertEqual(["example/alpha"], [row["repository"] for row in first["candidates"]])
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tools/build_portable_discovery.py b/tools/build_portable_discovery.py
+new file mode 100644
+index 0000000..725c444
+--- /dev/null
++++ b/tools/build_portable_discovery.py
+@@ -0,0 +1,219 @@
++from __future__ import annotations
++
++import argparse
++from dataclasses import dataclass
++import hashlib
++import io
++import json
++import os
++from pathlib import Path
++import stat
++import sys
++import zipfile
++
++SCHEMA = "axm.discovery-portable-zipapp/v0.1"
++ROOT_MAIN = (
++    "from discovery_buddy.cli import main\n\n"
++    "raise SystemExit(main())\n"
++)
++FIXED_TIME = (1980, 1, 1, 0, 0, 0)
++
++
++@dataclass(frozen=True)
++class SourceEntry:
++    path: str
++    data: bytes
++
++    @property
++    def sha256(self) -> str:
++        return hashlib.sha256(self.data).hexdigest()
++
++
++def _is_regular_unlinked(path: Path) -> bool:
++    try:
++        mode = path.lstat().st_mode
++    except OSError:
++        return False
++    return stat.S_ISREG(mode) and not stat.S_ISLNK(mode)
++
++
++def _collect_sources(repo_root: Path) -> list[SourceEntry]:
++    repo_root = repo_root.resolve()
++    package = repo_root / "discovery_buddy"
++    if not package.is_dir() or package.is_symlink():
++        raise ValueError("discovery_buddy package must be a real directory")
++
++    entries: list[SourceEntry] = []
++    for root, dirs, files in os.walk(package, topdown=True, followlinks=False):
++        root_path = Path(root)
++        rejected_dirs = [name for name in dirs if (root_path / name).is_symlink()]
++        if rejected_dirs:
++            raise ValueError(f"source package contains symlink directory: {rejected_dirs[0]}")
++        dirs[:] = sorted(name for name in dirs if name != "__pycache__")
++        for name in sorted(files):
++            path = root_path / name
++            if path.is_symlink():
++                raise ValueError(f"source package contains symlink file: {path.relative_to(repo_root)}")
++            if path.suffix != ".py":
++                continue
++            if not _is_regular_unlinked(path):
++                raise ValueError(f"source package member is not a regular file: {path.relative_to(repo_root)}")
++            rel = path.relative_to(repo_root).as_posix()
++            entries.append(SourceEntry(rel, path.read_bytes()))
++
++    entries.sort(key=lambda entry: entry.path)
++    required = {
++        "discovery_buddy/__init__.py",
++        "discovery_buddy/__main__.py",
++        "discovery_buddy/cli.py",
++        "discovery_buddy/scanner.py",
++        "discovery_buddy/query.py",
++    }
++    present = {entry.path for entry in entries}
++    missing = sorted(required - present)
++    if missing:
++        raise ValueError("portable source is incomplete: " + ", ".join(missing))
++    return entries
++
++
++def _zip_info(path: str) -> zipfile.ZipInfo:
++    info = zipfile.ZipInfo(path, FIXED_TIME)
++    info.create_system = 3
++    info.compress_type = zipfile.ZIP_STORED
++    info.external_attr = (stat.S_IFREG | 0o644) << 16
++    return info
++
++
++def _archive_bytes(entries: list[SourceEntry]) -> bytes:
++    stream = io.BytesIO()
++    with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_STORED) as archive:
++        archive.writestr(_zip_info("__main__.py"), ROOT_MAIN.encode("utf-8"))
++        for entry in entries:
++            archive.writestr(_zip_info(entry.path), entry.data)
++    return stream.getvalue()
++
++
++def _source_digest(entries: list[SourceEntry]) -> str:
++    body = [
++        {"path": entry.path, "bytes": len(entry.data), "sha256": entry.sha256}
++        for entry in entries
++    ]
++    raw = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
++    return hashlib.sha256(raw).hexdigest()
++
++
++def _receipt(entries: list[SourceEntry], artifact: bytes) -> dict:
++    return {
++        "schema": SCHEMA,
++        "artifact": {
++            "format": "python-zipapp",
++            "entrypoint": "__main__.py",
++            "bytes": len(artifact),
++            "sha256": hashlib.sha256(artifact).hexdigest(),
++            "python_requires": ">=3.11",
++            "runtime_dependencies": [],
++            "network_required": False,
++        },
++        "source": {
++            "scope": "discovery_buddy/**/*.py",
++            "sha256": _source_digest(entries),
++            "files": [
++                {"path": entry.path, "bytes": len(entry.data), "sha256": entry.sha256}
++                for entry in entries
++            ],
++        },
++        "authority": {
++            "classification": "PORTABLE_TOOL_ONLY",
++            "discovered_capability_execution": False,
++            "automatic_selection": False,
++            "discovered_capability_installation": False,
++            "merge": False,
++            "canon": False,
++        },
++        "truth_boundary": (
++            "The receipt binds exact packaged source bytes to this local zipapp. "
++            "It is integrity evidence, not authorship authentication, runtime compatibility proof, "
++            "provider approval, merge authority, or CANON."
++        ),
++    }
++
++
++def _json_bytes(value: dict) -> bytes:
++    return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
++
++
++def _safe_output(path: Path) -> Path:
++    if path.is_symlink():
++        raise ValueError(f"output must not be a symlink: {path}")
++    path = path.expanduser().absolute()
++    if path.exists() and not _is_regular_unlinked(path):
++        raise ValueError(f"output must be a regular non-symlink file: {path}")
++    path.parent.mkdir(parents=True, exist_ok=True)
++    return path
++
++
++def build(repo_root: Path, output: Path, receipt_path: Path) -> dict:
++    entries = _collect_sources(repo_root)
++    artifact = _archive_bytes(entries)
++    receipt = _receipt(entries, artifact)
++
++    output = _safe_output(output)
++    receipt_path = _safe_output(receipt_path)
++    if output == receipt_path:
++        raise ValueError("artifact and receipt paths must differ")
++
++    output.write_bytes(artifact)
++    receipt_path.write_bytes(_json_bytes(receipt))
++    return receipt
++
++
++def verify(repo_root: Path, output: Path, receipt_path: Path) -> dict:
++    entries = _collect_sources(repo_root)
++    expected_artifact = _archive_bytes(entries)
++    expected_receipt = _json_bytes(_receipt(entries, expected_artifact))
++
++    if not _is_regular_unlinked(output):
++        raise ValueError("portable artifact is missing or not a regular non-symlink file")
++    if not _is_regular_unlinked(receipt_path):
++        raise ValueError("portable receipt is missing or not a regular non-symlink file")
++    if output.read_bytes() != expected_artifact:
++        raise ValueError("portable artifact drifted from current source")
++    if receipt_path.read_bytes() != expected_receipt:
++        raise ValueError("portable receipt drifted from current source/artifact")
++    return json.loads(expected_receipt)
++
++
++def _parser() -> argparse.ArgumentParser:
++    parser = argparse.ArgumentParser(
++        prog="build-portable-discovery",
++        description="Build or verify a deterministic dependency-free Discovery Buddy Python zipapp.",
++    )
++    parser.add_argument("command", choices=("build", "verify"))
++    parser.add_argument("--output", default="dist/discovery-buddy.pyz")
++    parser.add_argument("--receipt", default="dist/discovery-buddy.pyz.receipt.json")
++    return parser
++
++
++def main(argv: list[str] | None = None) -> int:
++    args = _parser().parse_args(argv)
++    repo_root = Path(__file__).resolve().parents[1]
++    output = Path(args.output)
++    receipt_path = Path(args.receipt)
++    try:
++        result = (
++            build(repo_root, output, receipt_path)
++            if args.command == "build"
++            else verify(repo_root, output, receipt_path)
++        )
++    except (OSError, ValueError, zipfile.BadZipFile) as exc:
++        print(f"portable-discovery: HOLD: {exc}", file=sys.stderr)
++        return 2
++
++    digest = result["artifact"]["sha256"]
++    action = "wrote" if args.command == "build" else "PASS"
++    print(f"portable-discovery: {action} {output} ({digest})")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

@@ -1,0 +1,1168 @@
+diff --git a/.axm/beacon.json b/.axm/beacon.json
+new file mode 100644
+index 0000000..e9b4e53
+--- /dev/null
++++ b/.axm/beacon.json
+@@ -0,0 +1,30 @@
++{
++  "protocol": "axm-beacon/0.1",
++  "repo": "mike-axiom-mir/axm-discovery-buddy",
++  "interests": [
++    "organ capability",
++    "deterministic provenance receipts",
++    "state protocol schema",
++    "discovery scanner",
++    "visual observer",
++    "game asset runtime network"
++  ],
++  "publish": {
++    "include": ["**/*"],
++    "exclude": [
++      ".git/**",
++      ".axm/beacon/feed/**",
++      ".axm/beacon/inbox/**",
++      ".repo-import/**",
++      "**/__pycache__/**",
++      "**/*.pyc"
++    ],
++    "max_capsules": 200,
++    "tags": ["axm", "discovery", "standalone"]
++  },
++  "peer_discovery": {
++    "github_owner": "mike-axiom-mir",
++    "repo_prefixes": ["axm-", "Axm-"],
++    "feed_branch": "axm-beacon-feed"
++  }
++}
+diff --git a/.axm/beacon/beacon.py b/.axm/beacon/beacon.py
+new file mode 100644
+index 0000000..f38efcc
+--- /dev/null
++++ b/.axm/beacon/beacon.py
+@@ -0,0 +1,126 @@
++#!/usr/bin/env python3
++"""AXM Organ Beacon v0.1 command line.
++
++Each repository carries its own copy. Peer discoveries are proposal-only: this
++command never applies a remote patch to canonical source.
++"""
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import sys
++import urllib.error
++from pathlib import Path
++
++HERE = Path(__file__).resolve().parent
++if str(HERE) not in sys.path:
++    sys.path.insert(0, str(HERE))
++
++from core import (  # noqa: E402
++    BeaconError,
++    PROTOCOL,
++    DEFAULT_CONFIG,
++    DEFAULT_FEED_BRANCH,
++    capsule_summary,
++    load_config,
++    publish,
++    verify_capsule,
++)
++from network import fetch_capsule, rank_candidates, scan  # noqa: E402
++
++
++def cmd_publish(args: argparse.Namespace) -> int:
++    capsule = publish(
++        Path(args.repo_root).resolve(),
++        args.base,
++        args.head,
++        Path(args.output_dir).resolve(),
++        args.config,
++    )
++    print(json.dumps(capsule_summary(capsule), indent=2, sort_keys=True))
++    return 0
++
++
++def cmd_scan(args: argparse.Namespace) -> int:
++    result = scan(
++        Path(args.repo_root).resolve(),
++        args.config,
++        [Path(p).resolve() for p in args.feed_dir],
++        args.github,
++        args.limit,
++    )
++    print(json.dumps(result, indent=2, sort_keys=True))
++    return 0
++
++
++def cmd_verify(args: argparse.Namespace) -> int:
++    capsule = json.loads(Path(args.capsule).read_text(encoding="utf-8"))
++    ok, reason = verify_capsule(capsule)
++    print(reason)
++    return 0 if ok else 2
++
++
++def cmd_fetch(args: argparse.Namespace) -> int:
++    config = load_config(Path(args.repo_root).resolve(), args.config)
++    branch = args.branch or config.get("peer_discovery", {}).get("feed_branch", DEFAULT_FEED_BRANCH)
++    capsule_path, patch_path = fetch_capsule(
++        args.repo,
++        args.capsule_id,
++        str(branch),
++        Path(args.dest).resolve(),
++        token=os.getenv("GITHUB_TOKEN"),
++    )
++    print(json.dumps({"capsule": str(capsule_path), "patch": str(patch_path), "applied": False}, indent=2))
++    return 0
++
++
++def build_parser() -> argparse.ArgumentParser:
++    parser = argparse.ArgumentParser(
++        description="AXM Organ Beacon: deterministic cross-repo discovery without silent adoption"
++    )
++    parser.add_argument("--repo-root", default=".", help="repository root (default: current directory)")
++    parser.add_argument(
++        "--config",
++        default=DEFAULT_CONFIG,
++        help=f"config path relative to repo (default: {DEFAULT_CONFIG})",
++    )
++    sub = parser.add_subparsers(dest="command", required=True)
++
++    pub = sub.add_parser("publish", help="package a git change as a deterministic evidence capsule + patch")
++    pub.add_argument("--base", help="base git ref; invalid/zero refs fall back to the empty tree")
++    pub.add_argument("--head", help="head git ref (default: HEAD)")
++    pub.add_argument("--output-dir", default=".axm/beacon/feed", help="feed output directory")
++    pub.set_defaults(func=cmd_publish)
++
++    scan_p = sub.add_parser("scan", help="rank peer beacon indexes against this repo's declared interests")
++    scan_p.add_argument("--feed-dir", action="append", default=[], help="local peer feed/index path; repeatable")
++    scan_p.add_argument("--github", action="store_true", help="also discover public peer feeds through GitHub")
++    scan_p.add_argument("--limit", type=int, default=20)
++    scan_p.set_defaults(func=cmd_scan)
++
++    verify_p = sub.add_parser("verify", help="verify a capsule's deterministic identity")
++    verify_p.add_argument("capsule")
++    verify_p.set_defaults(func=cmd_verify)
++
++    fetch_p = sub.add_parser("fetch", help="fetch a candidate capsule + patch into a proposal-only inbox")
++    fetch_p.add_argument("--repo", required=True, help="source repo in owner/name form")
++    fetch_p.add_argument("--capsule-id", required=True)
++    fetch_p.add_argument("--branch", help=f"feed branch (default from config or {DEFAULT_FEED_BRANCH})")
++    fetch_p.add_argument("--dest", default=".axm/beacon/inbox")
++    fetch_p.set_defaults(func=cmd_fetch)
++    return parser
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = build_parser()
++    args = parser.parse_args(argv)
++    try:
++        return int(args.func(args))
++    except (BeaconError, OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
++        print(f"beacon error: {exc}", file=sys.stderr)
++        return 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/.axm/beacon/core.py b/.axm/beacon/core.py
+new file mode 100644
+index 0000000..491d1fb
+--- /dev/null
++++ b/.axm/beacon/core.py
+@@ -0,0 +1,471 @@
++"""Deterministic local core for AXM Organ Beacon v0.1."""
++from __future__ import annotations
++
++import ast
++import fnmatch
++import hashlib
++import json
++import re
++import subprocess
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Iterable
++
++PROTOCOL = "axm-beacon/0.1"
++DEFAULT_CONFIG = ".axm/beacon.json"
++DEFAULT_FEED_BRANCH = "axm-beacon-feed"
++EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
++ZERO_SHA_RE = re.compile(r"^0+$")
++CODE_EXTENSIONS = {
++    ".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".go", ".rs",
++    ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".java", ".kt", ".kts",
++    ".cs", ".rb", ".php", ".swift", ".sh", ".bash", ".ps1", ".lua",
++}
++DOC_EXTENSIONS = {".md", ".mdx", ".rst", ".txt"}
++CONFIG_EXTENSIONS = {".json", ".yaml", ".yml", ".toml"}
++TEST_MARKERS = ("test", "tests", "spec", "specs", "__tests__")
++ORGAN_MARKERS = (
++    "organ", "organs", "capability", "capabilities", "module", "modules",
++    "adapter", "adapters", "engine", "engines", "runtime", "runtimes",
++    "fabric", "node", "nodes", "observer", "sentinel",
++)
++PROTOCOL_MARKERS = (
++    "protocol", "schema", "contract", "manifest", "receipt", "provenance",
++    "state", "interface", "api",
++)
++TOKEN_STOPWORDS = {
++    "src", "lib", "app", "apps", "core", "main", "index", "test", "tests",
++    "spec", "specs", "docs", "doc", "config", "configs", "data", "assets",
++    "public", "private", "new", "old", "file", "files", "the", "and", "for",
++}
++JS_SYMBOL_RE = re.compile(
++    r"\b(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)"
++)
++GENERIC_SYMBOL_RE = re.compile(
++    r"\b(?:class|struct|enum|interface|trait|fn|func|function)\s+([A-Za-z_][\w]*)"
++)
++
++
++class BeaconError(RuntimeError):
++    pass
++
++
++@dataclass(frozen=True)
++class DiffFile:
++    path: str
++    status: str
++    additions: int | None
++    deletions: int | None
++    binary: bool
++    changed_lines: frozenset[int]
++
++
++def canonical_json(value: Any) -> str:
++    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
++
++
++def sha256_text(text: str) -> str:
++    return hashlib.sha256(text.encode("utf-8")).hexdigest()
++
++
++def sha256_bytes(data: bytes) -> str:
++    return hashlib.sha256(data).hexdigest()
++
++
++def run_git(root: Path, *args: str, check: bool = True, text: bool = True) -> subprocess.CompletedProcess:
++    proc = subprocess.run(
++        ["git", *args],
++        cwd=root,
++        stdout=subprocess.PIPE,
++        stderr=subprocess.PIPE,
++        text=text,
++        check=False,
++    )
++    if check and proc.returncode != 0:
++        stderr = proc.stderr.strip() if text else proc.stderr.decode("utf-8", "replace").strip()
++        raise BeaconError(f"git {' '.join(args)} failed: {stderr}")
++    return proc
++
++
++def ensure_git_repo(root: Path) -> None:
++    proc = run_git(root, "rev-parse", "--is-inside-work-tree", check=False)
++    if proc.returncode != 0 or proc.stdout.strip() != "true":
++        raise BeaconError(f"not a git repository: {root}")
++
++
++def resolve_ref(root: Path, ref: str | None, fallback: str) -> str:
++    candidate = (ref or fallback).strip()
++    if not candidate or ZERO_SHA_RE.match(candidate):
++        return EMPTY_TREE_SHA
++    proc = run_git(root, "rev-parse", "--verify", candidate, check=False)
++    if proc.returncode == 0:
++        return proc.stdout.strip()
++    if candidate == fallback:
++        raise BeaconError(f"unable to resolve git ref: {candidate}")
++    return EMPTY_TREE_SHA
++
++
++def load_config(root: Path, config_path: str = DEFAULT_CONFIG) -> dict[str, Any]:
++    path = root / config_path
++    if not path.exists():
++        return {
++            "protocol": PROTOCOL,
++            "repo": infer_repo_slug(root),
++            "interests": [],
++            "publish": {"include": ["**/*"], "exclude": [".git/**", ".axm/beacon/feed/**"]},
++            "peer_discovery": {"feed_branch": DEFAULT_FEED_BRANCH},
++        }
++    try:
++        data = json.loads(path.read_text(encoding="utf-8"))
++    except (OSError, json.JSONDecodeError) as exc:
++        raise BeaconError(f"invalid beacon config {path}: {exc}") from exc
++    if data.get("protocol", PROTOCOL) != PROTOCOL:
++        raise BeaconError(f"unsupported beacon protocol in {path}: {data.get('protocol')}")
++    data.setdefault("repo", infer_repo_slug(root))
++    data.setdefault("interests", [])
++    data.setdefault("publish", {})
++    data["publish"].setdefault("include", ["**/*"])
++    data["publish"].setdefault("exclude", [".git/**", ".axm/beacon/feed/**"])
++    data.setdefault("peer_discovery", {})
++    data["peer_discovery"].setdefault("feed_branch", DEFAULT_FEED_BRANCH)
++    return data
++
++
++def infer_repo_slug(root: Path) -> str:
++    proc = run_git(root, "remote", "get-url", "origin", check=False)
++    if proc.returncode != 0:
++        return root.resolve().name
++    url = proc.stdout.strip().rstrip("/")
++    match = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
++    return match.group(1) if match else root.resolve().name
++
++
++def _matches_any(path: str, patterns: Iterable[str]) -> bool:
++    normalized = path.replace("\\", "/")
++    return any(fnmatch.fnmatch(normalized, p) or fnmatch.fnmatch(f"./{normalized}", p) for p in patterns)
++
++
++def path_allowed(path: str, config: dict[str, Any]) -> bool:
++    publish = config.get("publish", {})
++    include = publish.get("include") or ["**/*"]
++    exclude = publish.get("exclude") or []
++    included = "**/*" in include or _matches_any(path, include)
++    return included and not _matches_any(path, exclude)
++
++
++def parse_changed_lines(diff_text: str) -> dict[str, set[int]]:
++    result: dict[str, set[int]] = {}
++    current: str | None = None
++    for line in diff_text.splitlines():
++        if line.startswith("+++ b/"):
++            current = line[6:]
++            result.setdefault(current, set())
++            continue
++        if line.startswith("+++ /dev/null"):
++            current = None
++            continue
++        if current and line.startswith("@@"):
++            match = re.search(r"\+(\d+)(?:,(\d+))?", line)
++            if match:
++                start = int(match.group(1))
++                length = int(match.group(2) or "1")
++                if length > 0:
++                    result[current].update(range(start, start + length))
++    return result
++
++
++def collect_diff_files(root: Path, base: str, head: str, config: dict[str, Any]) -> tuple[list[DiffFile], str]:
++    name_status = run_git(root, "diff", "--name-status", "--find-renames", base, head, "--").stdout
++    parsed_status: list[tuple[str, str]] = []
++    for line in name_status.splitlines():
++        parts = line.split("\t")
++        if len(parts) < 2:
++            continue
++        status = parts[0]
++        path = parts[-1] if status.startswith(("R", "C")) else parts[1]
++        if path_allowed(path, config):
++            parsed_status.append((status, path))
++
++    allowed_paths = [path for _status, path in parsed_status]
++    if allowed_paths:
++        patch = run_git(root, "diff", "--binary", "--no-ext-diff", base, head, "--", *allowed_paths).stdout
++        numstat = run_git(root, "diff", "--numstat", base, head, "--", *allowed_paths).stdout
++    else:
++        patch = ""
++        numstat = ""
++    changed_lines = parse_changed_lines(patch)
++
++    stats: dict[str, tuple[int | None, int | None, bool]] = {}
++    for line in numstat.splitlines():
++        parts = line.split("\t")
++        if len(parts) < 3:
++            continue
++        add_s, del_s, path = parts[0], parts[1], parts[-1]
++        binary = add_s == "-" or del_s == "-"
++        stats[path] = (None if binary else int(add_s), None if binary else int(del_s), binary)
++
++    files: list[DiffFile] = []
++    for status, path in parsed_status:
++        additions, deletions, binary = stats.get(path, (None, None, False))
++        files.append(
++            DiffFile(
++                path=path,
++                status=status,
++                additions=additions,
++                deletions=deletions,
++                binary=binary,
++                changed_lines=frozenset(changed_lines.get(path, set())),
++            )
++        )
++    return files, patch
++
++
++def read_file_at_ref(root: Path, ref: str, path: str) -> bytes | None:
++    proc = run_git(root, "show", f"{ref}:{path}", check=False, text=False)
++    if proc.returncode != 0:
++        return None
++    return proc.stdout
++
++
++def intersects_changed(start: int, end: int, changed: frozenset[int]) -> bool:
++    if not changed:
++        return True
++    return any(start <= line <= end for line in changed)
++
++
++def extract_symbols(path: str, content: bytes | None, changed: frozenset[int]) -> list[str]:
++    if content is None:
++        return []
++    try:
++        text = content.decode("utf-8")
++    except UnicodeDecodeError:
++        return []
++    suffix = Path(path).suffix.lower()
++    symbols: list[str] = []
++    if suffix == ".py":
++        try:
++            tree = ast.parse(text)
++        except SyntaxError:
++            return []
++        for node in tree.body:
++            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
++                start = getattr(node, "lineno", 0)
++                end = getattr(node, "end_lineno", start)
++                if intersects_changed(start, end, changed):
++                    symbols.append(node.name)
++    elif suffix in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
++        for number, line in enumerate(text.splitlines(), start=1):
++            if changed and number not in changed:
++                continue
++            for match in JS_SYMBOL_RE.finditer(line):
++                symbols.append(match.group(1))
++    elif suffix in CODE_EXTENSIONS:
++        for number, line in enumerate(text.splitlines(), start=1):
++            if changed and number not in changed:
++                continue
++            for match in GENERIC_SYMBOL_RE.finditer(line):
++                symbols.append(match.group(1))
++    seen: set[str] = set()
++    return [s for s in symbols if not (s in seen or seen.add(s))][:64]
++
++
++def extract_knowledge_topics(path: str, content: bytes | None, changed: frozenset[int]) -> list[str]:
++    if content is None or Path(path).suffix.lower() not in {".md", ".mdx"}:
++        return []
++    try:
++        text = content.decode("utf-8")
++    except UnicodeDecodeError:
++        return []
++    topics: list[str] = []
++    for number, line in enumerate(text.splitlines(), start=1):
++        if changed and number not in changed:
++            continue
++        match = re.match(r"^#{1,6}\s+(.+?)\s*$", line)
++        if match:
++            topic = re.sub(r"\s+#+$", "", match.group(1)).strip()
++            if topic:
++                topics.append(topic[:160])
++    seen: set[str] = set()
++    return [t for t in topics if not (t in seen or seen.add(t))][:32]
++
++
++def tokenize(value: str) -> list[str]:
++    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", value)
++    parts = re.split(r"[^A-Za-z0-9]+", normalized.lower())
++    return [p for p in parts if len(p) >= 3 and p not in TOKEN_STOPWORDS and not p.isdigit()]
++
++
++def classify_changes(files: list[dict[str, Any]]) -> tuple[list[str], list[str], int, dict[str, bool]]:
++    kinds: set[str] = set()
++    tags: set[str] = set()
++    flags = {
++        "code": False,
++        "tests": False,
++        "docs": False,
++        "organ": False,
++        "protocol": False,
++        "symbols": False,
++    }
++    for item in files:
++        path = item["path"]
++        lower = path.lower()
++        suffix = Path(path).suffix.lower()
++        components = [p.lower() for p in Path(path).parts]
++        if suffix in CODE_EXTENSIONS:
++            kinds.add("code")
++            flags["code"] = True
++        if suffix in DOC_EXTENSIONS:
++            kinds.add("knowledge")
++            flags["docs"] = True
++        if suffix in CONFIG_EXTENSIONS:
++            kinds.add("configuration")
++        if any(marker in components or marker in lower for marker in TEST_MARKERS):
++            kinds.add("test-change")
++            flags["tests"] = True
++        if any(marker in components or marker in lower for marker in ORGAN_MARKERS):
++            kinds.add("organ-capability")
++            flags["organ"] = True
++        if any(marker in components or marker in lower for marker in PROTOCOL_MARKERS):
++            kinds.add("protocol-state")
++            flags["protocol"] = True
++        if item.get("symbols"):
++            flags["symbols"] = True
++        for token in tokenize(path):
++            tags.add(token)
++        for symbol in item.get("symbols", []):
++            for token in tokenize(symbol):
++                tags.add(token)
++        for topic in item.get("topics", []):
++            for token in tokenize(topic):
++                tags.add(token)
++
++    score = 0
++    score += 2 if flags["code"] else 0
++    score += 2 if flags["tests"] else 0
++    score += 1 if flags["docs"] else 0
++    score += 2 if flags["organ"] else 0
++    score += 1 if flags["protocol"] else 0
++    score += 1 if flags["symbols"] else 0
++    return sorted(kinds), sorted(tags)[:64], score, flags
++
++
++def build_capsule(root: Path, base: str, head: str, config: dict[str, Any]) -> tuple[dict[str, Any], str]:
++    files, patch = collect_diff_files(root, base, head, config)
++    changed: list[dict[str, Any]] = []
++    for file in files:
++        content = None if file.status.startswith("D") else read_file_at_ref(root, head, file.path)
++        symbols = extract_symbols(file.path, content, file.changed_lines)
++        topics = extract_knowledge_topics(file.path, content, file.changed_lines)
++        changed.append(
++            {
++                "path": file.path,
++                "status": file.status,
++                "additions": file.additions,
++                "deletions": file.deletions,
++                "binary": file.binary,
++                "content_sha256": sha256_bytes(content) if content is not None else None,
++                "symbols": symbols,
++                "topics": topics,
++            }
++        )
++
++    kinds, tags, attention_score, _flags = classify_changes(changed)
++    declared_tags = [str(t).strip().lower() for t in config.get("publish", {}).get("tags", []) if str(t).strip()]
++    tags = sorted(set(tags).union(declared_tags))[:64]
++    commit_subject = run_git(root, "log", "-1", "--format=%s", head).stdout.strip()
++    for token in tokenize(commit_subject):
++        tags.append(token)
++    tags = sorted(set(tags))[:64]
++    patch_hash = sha256_text(patch)
++    core = {
++        "protocol": PROTOCOL,
++        "source": {
++            "repo": config.get("repo") or infer_repo_slug(root),
++            "base": base,
++            "head": head,
++            "commit_subject": commit_subject,
++        },
++        "evidence": {"files": changed, "patch_sha256": patch_hash},
++        "signals": {
++            "kinds": kinds,
++            "tags": tags,
++            "attention_score": attention_score,
++            "meaning": "candidate-for-inspection-not-truth",
++        },
++        "transfer": {
++            "mode": "proposal-only",
++            "standalone_receiver": True,
++            "auto_apply": False,
++        },
++    }
++    capsule_id = sha256_text(canonical_json(core))
++    capsule = {"capsule_id": capsule_id, **core}
++    return capsule, patch
++
++
++def capsule_summary(capsule: dict[str, Any]) -> dict[str, Any]:
++    source = capsule["source"]
++    evidence = capsule["evidence"]
++    return {
++        "capsule_id": capsule["capsule_id"],
++        "repo": source["repo"],
++        "base": source["base"],
++        "head": source["head"],
++        "kinds": capsule["signals"]["kinds"],
++        "tags": capsule["signals"]["tags"],
++        "attention_score": capsule["signals"]["attention_score"],
++        "file_count": len(evidence["files"]),
++        "capsule_path": f"capsules/{capsule['capsule_id']}.json",
++        "patch_path": f"patches/{capsule['capsule_id']}.patch",
++    }
++
++
++def verify_capsule(capsule: dict[str, Any]) -> tuple[bool, str]:
++    capsule_id = capsule.get("capsule_id")
++    if not isinstance(capsule_id, str):
++        return False, "missing capsule_id"
++    core = {k: v for k, v in capsule.items() if k != "capsule_id"}
++    expected = sha256_text(canonical_json(core))
++    if expected != capsule_id:
++        return False, f"capsule hash mismatch: expected {expected}, got {capsule_id}"
++    if capsule.get("protocol") != PROTOCOL:
++        return False, f"unsupported protocol: {capsule.get('protocol')}"
++    return True, "ok"
++
++
++def publish(root: Path, base_ref: str | None, head_ref: str | None, output_dir: Path, config_path: str) -> dict[str, Any]:
++    ensure_git_repo(root)
++    config = load_config(root, config_path)
++    head = resolve_ref(root, head_ref, "HEAD")
++    base = resolve_ref(root, base_ref, f"{head}^")
++    capsule, patch = build_capsule(root, base, head, config)
++
++    output_dir.mkdir(parents=True, exist_ok=True)
++    capsules_dir = output_dir / "capsules"
++    patches_dir = output_dir / "patches"
++    capsules_dir.mkdir(exist_ok=True)
++    patches_dir.mkdir(exist_ok=True)
++    capsule_path = capsules_dir / f"{capsule['capsule_id']}.json"
++    patch_path = patches_dir / f"{capsule['capsule_id']}.patch"
++    capsule_path.write_text(json.dumps(capsule, indent=2, sort_keys=True) + "\n", encoding="utf-8")
++    patch_path.write_text(patch, encoding="utf-8")
++
++    index_path = output_dir / "index.json"
++    if index_path.exists():
++        try:
++            index = json.loads(index_path.read_text(encoding="utf-8"))
++        except json.JSONDecodeError:
++            index = {}
++    else:
++        index = {}
++    entries = {entry["capsule_id"]: entry for entry in index.get("capsules", []) if isinstance(entry, dict) and entry.get("capsule_id")}
++    entries[capsule["capsule_id"]] = capsule_summary(capsule)
++    max_capsules = int(config.get("publish", {}).get("max_capsules", 200))
++    ordered = sorted(entries.values(), key=lambda e: (e.get("head", ""), e.get("capsule_id", "")), reverse=True)[:max_capsules]
++    index = {
++        "protocol": PROTOCOL,
++        "repo": config.get("repo") or infer_repo_slug(root),
++        "capsules": ordered,
++    }
++    index_path.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
++    return capsule
+diff --git a/.axm/beacon/network.py b/.axm/beacon/network.py
+new file mode 100644
+index 0000000..e20cc43
+--- /dev/null
++++ b/.axm/beacon/network.py
+@@ -0,0 +1,149 @@
++"""Optional peer discovery/transport for AXM Organ Beacon v0.1."""
++from __future__ import annotations
++
++import json
++import os
++import urllib.error
++import urllib.request
++from pathlib import Path
++from typing import Any
++
++from core import (
++    BeaconError,
++    DEFAULT_FEED_BRANCH,
++    PROTOCOL,
++    load_config,
++    sha256_bytes,
++    tokenize,
++    verify_capsule,
++)
++
++
++def _request_json(url: str, token: str | None = None, timeout: float = 8.0) -> Any:
++    headers = {"Accept": "application/vnd.github+json", "User-Agent": "axm-organ-beacon/0.1"}
++    if token:
++        headers["Authorization"] = f"Bearer {token}"
++    req = urllib.request.Request(url, headers=headers)
++    with urllib.request.urlopen(req, timeout=timeout) as response:
++        return json.loads(response.read().decode("utf-8"))
++
++
++def discover_github_repos(owner: str, prefixes: list[str], token: str | None = None) -> list[str]:
++    url = f"https://api.github.com/users/{owner}/repos?per_page=100&type=owner&sort=updated"
++    data = _request_json(url, token=token)
++    repos: list[str] = []
++    for item in data:
++        if item.get("archived"):
++            continue
++        name = item.get("name", "")
++        if prefixes and not any(name.startswith(prefix) for prefix in prefixes):
++            continue
++        repos.append(f"{owner}/{name}")
++    return repos
++
++
++def fetch_peer_indexes(owner: str, prefixes: list[str], branch: str, token: str | None = None) -> list[dict[str, Any]]:
++    indexes: list[dict[str, Any]] = []
++    for repo in discover_github_repos(owner, prefixes, token=token):
++        url = f"https://raw.githubusercontent.com/{repo}/{branch}/index.json"
++        try:
++            index = _request_json(url, token=token)
++        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
++            continue
++        if index.get("protocol") == PROTOCOL:
++            indexes.append(index)
++    return indexes
++
++
++def load_local_indexes(feed_dirs: list[Path]) -> list[dict[str, Any]]:
++    indexes: list[dict[str, Any]] = []
++    for directory in feed_dirs:
++        path = directory / "index.json" if directory.is_dir() else directory
++        if not path.exists():
++            continue
++        try:
++            index = json.loads(path.read_text(encoding="utf-8"))
++        except json.JSONDecodeError:
++            continue
++        if index.get("protocol") == PROTOCOL:
++            indexes.append(index)
++    return indexes
++
++
++def rank_candidates(indexes: list[dict[str, Any]], local_repo: str, interests: list[str]) -> list[dict[str, Any]]:
++    interest_tokens = {token for interest in interests for token in tokenize(interest)}
++    ranked: list[dict[str, Any]] = []
++    for index in indexes:
++        for capsule in index.get("capsules", []):
++            if capsule.get("repo") == local_repo:
++                continue
++            tags = set(capsule.get("tags", []))
++            kinds = set(capsule.get("kinds", []))
++            overlap = sorted(interest_tokens.intersection(tags.union(kinds)))
++            relevance = len(overlap) * 3 + min(int(capsule.get("attention_score", 0)), 9)
++            ranked.append({**capsule, "interest_overlap": overlap, "relevance_score": relevance})
++    return sorted(
++        ranked,
++        key=lambda item: (
++            item["relevance_score"],
++            item.get("attention_score", 0),
++            item.get("capsule_id", ""),
++        ),
++        reverse=True,
++    )
++
++
++def scan(root: Path, config_path: str, feed_dirs: list[Path], github: bool, limit: int) -> dict[str, Any]:
++    config = load_config(root, config_path)
++    indexes = load_local_indexes(feed_dirs)
++    peer = config.get("peer_discovery", {})
++    if github:
++        owner = peer.get("github_owner")
++        if not owner:
++            repo = config.get("repo", "")
++            owner = repo.split("/", 1)[0] if "/" in repo else None
++        if owner:
++            prefixes = [str(p) for p in peer.get("repo_prefixes", [])]
++            branch = str(peer.get("feed_branch", DEFAULT_FEED_BRANCH))
++            token = os.getenv("GITHUB_TOKEN")
++            indexes.extend(fetch_peer_indexes(owner, prefixes, branch, token=token))
++    ranked = rank_candidates(
++        indexes,
++        str(config.get("repo", "")),
++        [str(i) for i in config.get("interests", [])],
++    )
++    return {
++        "protocol": PROTOCOL,
++        "repo": config.get("repo"),
++        "candidate_count": len(ranked),
++        "candidates": ranked[:limit],
++    }
++
++
++def fetch_capsule(repo: str, capsule_id: str, branch: str, dest: Path, token: str | None = None) -> tuple[Path, Path]:
++    base = f"https://raw.githubusercontent.com/{repo}/{branch}"
++    capsule_url = f"{base}/capsules/{capsule_id}.json"
++    patch_url = f"{base}/patches/{capsule_id}.patch"
++    capsule = _request_json(capsule_url, token=token)
++    ok, reason = verify_capsule(capsule)
++    if not ok:
++        raise BeaconError(reason)
++    req = urllib.request.Request(patch_url, headers={"User-Agent": "axm-organ-beacon/0.1"})
++    if token:
++        req.add_header("Authorization", f"Bearer {token}")
++    with urllib.request.urlopen(req, timeout=12.0) as response:
++        patch = response.read()
++    expected_patch = capsule.get("evidence", {}).get("patch_sha256")
++    if expected_patch and sha256_bytes(patch) != expected_patch:
++        raise BeaconError("patch hash mismatch")
++    target = dest / capsule_id
++    target.mkdir(parents=True, exist_ok=True)
++    capsule_path = target / "capsule.json"
++    patch_path = target / "change.patch"
++    capsule_path.write_text(json.dumps(capsule, indent=2, sort_keys=True) + "\n", encoding="utf-8")
++    patch_path.write_bytes(patch)
++    (target / "STATUS.txt").write_text(
++        "proposal-only\nnot applied\nreceiver must inspect + test before adoption\n",
++        encoding="utf-8",
++    )
++    return capsule_path, patch_path
+diff --git a/.github/workflows/axm-beacon-publish.yml b/.github/workflows/axm-beacon-publish.yml
+new file mode 100644
+index 0000000..5f2d9d8
+--- /dev/null
++++ b/.github/workflows/axm-beacon-publish.yml
+@@ -0,0 +1,67 @@
++name: AXM Beacon Publish
++
++on:
++  push:
++    branches: [main]
++  workflow_dispatch:
++
++permissions:
++  contents: write
++
++jobs:
++  publish-beacon-feed:
++    runs-on: ubuntu-latest
++    steps:
++      - name: Check out full repository history
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++
++      - name: Select evidence range
++        id: range
++        shell: bash
++        run: |
++          set -euo pipefail
++          head_sha="${GITHUB_SHA}"
++          before_sha="${{ github.event.before }}"
++          if [[ -z "${before_sha}" || "${before_sha}" =~ ^0+$ ]]; then
++            if git rev-parse "${head_sha}^" >/dev/null 2>&1; then
++              before_sha="$(git rev-parse "${head_sha}^")"
++            else
++              before_sha="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
++            fi
++          fi
++          echo "base=${before_sha}" >> "$GITHUB_OUTPUT"
++          echo "head=${head_sha}" >> "$GITHUB_OUTPUT"
++
++      - name: Restore previous generated feed
++        shell: bash
++        run: |
++          set -euo pipefail
++          rm -rf /tmp/axm-beacon-feed
++          mkdir -p /tmp/axm-beacon-feed
++          if git fetch origin axm-beacon-feed:refs/remotes/origin/axm-beacon-feed 2>/dev/null; then
++            git archive origin/axm-beacon-feed | tar -x -C /tmp/axm-beacon-feed
++          fi
++
++      - name: Build deterministic capsule
++        shell: bash
++        run: |
++          set -euo pipefail
++          python .axm/beacon/beacon.py publish \
++            --base "${{ steps.range.outputs.base }}" \
++            --head "${{ steps.range.outputs.head }}" \
++            --output-dir /tmp/axm-beacon-feed
++
++      - name: Publish generated feed branch
++        shell: bash
++        run: |
++          set -euo pipefail
++          git config user.name "axm-beacon"
++          git config user.email "axm-beacon@users.noreply.github.com"
++          git checkout --orphan __axm_beacon_feed
++          git rm -rf . >/dev/null 2>&1 || true
++          cp -a /tmp/axm-beacon-feed/. .
++          git add -A
++          git commit -m "beacon: publish ${GITHUB_SHA}"
++          git push --force origin HEAD:axm-beacon-feed
+diff --git a/.github/workflows/axm-beacon-test.yml b/.github/workflows/axm-beacon-test.yml
+new file mode 100644
+index 0000000..a72ccd0
+--- /dev/null
++++ b/.github/workflows/axm-beacon-test.yml
+@@ -0,0 +1,29 @@
++name: AXM Beacon Tests
++
++on:
++  pull_request:
++    paths:
++      - '.axm/beacon/**'
++      - '.axm/beacon.json'
++      - 'tests/test_beacon.py'
++      - '.github/workflows/axm-beacon-*.yml'
++  push:
++    branches: [main]
++    paths:
++      - '.axm/beacon/**'
++      - '.axm/beacon.json'
++      - 'tests/test_beacon.py'
++      - '.github/workflows/axm-beacon-*.yml'
++
++permissions:
++  contents: read
++
++jobs:
++  test:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: '3.11'
++      - run: python -m unittest -v tests/test_beacon.py
+diff --git a/AGENTS.md b/AGENTS.md
+index c3988d7..a819f24 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -31,3 +31,17 @@ When useful, separate **what exists** from **how it is expressed on a particular
+ - Do not force this split where representation itself is the canonical truth; apply it where truth and realization can honestly be separated.
+ 
+ **Working rule:** degrade expression, never truth; upgrade expression, never invent truth. One body may wake up differently on different machines while remaining the same thing.
++
++## Cross-repository beacon principle
++
++Reusable discoveries may travel between repositories as evidence, never as silent authority.
++
++- Keep each repository independently runnable. Do not introduce runtime imports or hard dependencies on another AXM repository merely to share an organ or idea.
++- When a change appears reusable, the beacon may publish source commit IDs, file/content hashes, changed symbols or knowledge headings, an attention signal, and the exact allowed patch.
++- Publishing exclusions are a hard boundary. Excluded paths must not appear in the exported patch or capsule.
++- A receiving repository may rank and fetch a capsule, but the fetched material stays proposal-only until that repository independently inspects and tests it.
++- Beacon attention/relevance is not correctness, quality, confidence, or canon.
++- Adapt or reimplement a discovery when that better preserves the receiving repository's own architecture. Shared learning does not require shared executable state.
++- Never allow beacon transport state to overwrite canonical source, bypass local acceptance gates, or create automatic AXM canon.
++
++**Working rule:** share evidence and capability discoveries; let every receiving body earn adoption for itself.
+diff --git a/docs/AXM_BEACON_PROTOCOL.md b/docs/AXM_BEACON_PROTOCOL.md
+new file mode 100644
+index 0000000..fb1ddc2
+--- /dev/null
++++ b/docs/AXM_BEACON_PROTOCOL.md
+@@ -0,0 +1,85 @@
++# AXM Organ Beacon Protocol v0.1
++
++## Purpose
++
++AXM repositories remain independent bodies. The beacon lets one repository expose a compact, deterministic evidence capsule when a change may be worth inspecting elsewhere.
++
++This is **not** a dependency manager, shared runtime, automatic canon system, or cross-repo rewrite engine.
++
++## Core boundary
++
++A beacon may:
++
++- inspect a Git diff;
++- package changed paths, content hashes, symbols, knowledge headings, test-change/doc/protocol signals, and the exact allowed patch;
++- publish that package to a generated `axm-beacon-feed` branch;
++- let another repository rank the package against its own declared interests;
++- fetch the capsule and patch into a proposal-only inbox.
++
++A beacon may **not**:
++
++- claim that attention/relevance means correctness, quality, or truth;
++- apply the patch to a receiving repository;
++- change another repository's canonical state;
++- turn a discovery into AXM canon automatically;
++- hide the source repository, source commit, file hashes, or patch hash;
++- leak paths excluded by the publishing repository's beacon policy.
++
++The receiving repository must inspect, test, adapt, reject, or independently reimplement the idea under its own acceptance gates.
++
++## Why the feed is a separate branch
++
++`axm-beacon-feed` is generated transport state. It keeps machine-generated capsule history out of the repository's canonical source branch while remaining readable through ordinary Git/GitHub. The branch can be regenerated from source history.
++
++Each repository carries its own copy of the beacon implementation and config. No repository imports executable code from `axm-discovery-buddy` or another peer at runtime.
++
++## Capsule identity
++
++A capsule ID is the SHA-256 of canonical JSON containing:
++
++- protocol version;
++- source repo + base/head Git SHAs + commit subject;
++- per-file change metadata and content SHA-256;
++- patch SHA-256;
++- deterministic signals and tags;
++- transfer policy.
++
++Timestamps are intentionally excluded from identity. Running the publisher twice over the same source state produces the same capsule ID.
++
++## Attention score
++
++The beacon computes a small transparent **attention score** from evidence such as changed code, changed tests, documentation, symbols, organ/capability paths, and protocols/schemas.
++
++It is only a prioritization signal. It is deliberately named *attention*, not *quality*, *truth*, or *confidence*. A changed test is recorded as a test change; it is not treated as proof that tests passed.
++
++## Commands
++
++Publish a source change locally:
++
++```bash
++python .axm/beacon/beacon.py publish --base HEAD^ --head HEAD --output-dir /tmp/feed
++```
++
++Scan configured public AXM peer feeds on GitHub:
++
++```bash
++python .axm/beacon/beacon.py scan --github --limit 20
++```
++
++Fetch a candidate without applying it:
++
++```bash
++python .axm/beacon/beacon.py fetch \
++  --repo mike-axiom-mir/axm-state-research \
++  --capsule-id <sha256>
++```
++
++Verify a fetched capsule:
++
++```bash
++python .axm/beacon/beacon.py verify .axm/beacon/inbox/<sha256>/capsule.json
++```
++
++## Growth path
++
++v0.1 proves the transport and truth boundary. Later versions can add optional analyzers that produce richer semantic explanations, compatibility tests, or adaptation proposals, but those outputs must remain claims/evidence and never silently become authority.
+diff --git a/tests/test_beacon.py b/tests/test_beacon.py
+new file mode 100644
+index 0000000..9224072
+--- /dev/null
++++ b/tests/test_beacon.py
+@@ -0,0 +1,141 @@
++import importlib.util
++import json
++import subprocess
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++MODULE_PATH = Path(__file__).parents[1] / ".axm" / "beacon" / "beacon.py"
++spec = importlib.util.spec_from_file_location("axm_beacon", MODULE_PATH)
++beacon = importlib.util.module_from_spec(spec)
++sys.modules[spec.name] = beacon
++assert spec.loader is not None
++spec.loader.exec_module(beacon)
++
++
++def git(root: Path, *args: str) -> str:
++    proc = subprocess.run(["git", *args], cwd=root, check=True, text=True, stdout=subprocess.PIPE)
++    return proc.stdout.strip()
++
++
++class BeaconTests(unittest.TestCase):
++    def make_repo(self) -> Path:
++        root = Path(tempfile.mkdtemp(prefix="axm-beacon-test-"))
++        git(root, "init", "-q")
++        git(root, "config", "user.email", "beacon-test@example.invalid")
++        git(root, "config", "user.name", "Beacon Test")
++        (root / ".axm").mkdir()
++        (root / ".axm" / "beacon.json").write_text(
++            json.dumps(
++                {
++                    "protocol": beacon.PROTOCOL,
++                    "repo": "example/receiver",
++                    "interests": ["cache organ deterministic receipts"],
++                    "publish": {"include": ["**/*"], "exclude": [".axm/beacon/feed/**"]},
++                }
++            ),
++            encoding="utf-8",
++        )
++        (root / "README.md").write_text("seed\n", encoding="utf-8")
++        git(root, "add", ".")
++        git(root, "commit", "-qm", "seed")
++        return root
++
++    def add_reusable_change(self, root: Path) -> tuple[str, str]:
++        base = git(root, "rev-parse", "HEAD")
++        (root / "src" / "organs").mkdir(parents=True)
++        (root / "tests").mkdir()
++        (root / "docs").mkdir()
++        (root / "src" / "organs" / "cache.py").write_text(
++            "def stable_cache_key(parts):\n    return '::'.join(sorted(parts))\n",
++            encoding="utf-8",
++        )
++        (root / "tests" / "test_cache.py").write_text(
++            "from src.organs.cache import stable_cache_key\n\ndef test_key():\n    assert stable_cache_key(['b','a']) == 'a::b'\n",
++            encoding="utf-8",
++        )
++        (root / "docs" / "cache-receipt.md").write_text("# Deterministic cache receipt\n", encoding="utf-8")
++        git(root, "add", ".")
++        git(root, "commit", "-qm", "add deterministic cache organ")
++        head = git(root, "rev-parse", "HEAD")
++        return base, head
++
++    def test_publish_is_deterministic_and_evidence_backed(self):
++        root = self.make_repo()
++        base, head = self.add_reusable_change(root)
++        out1 = root / "feed1"
++        out2 = root / "feed2"
++        cap1 = beacon.publish(root, base, head, out1, ".axm/beacon.json")
++        cap2 = beacon.publish(root, base, head, out2, ".axm/beacon.json")
++        self.assertEqual(cap1["capsule_id"], cap2["capsule_id"])
++        self.assertFalse(cap1["transfer"]["auto_apply"])
++        self.assertEqual(cap1["signals"]["meaning"], "candidate-for-inspection-not-truth")
++        self.assertIn("organ-capability", cap1["signals"]["kinds"])
++        self.assertIn("test-change", cap1["signals"]["kinds"])
++        paths = {entry["path"] for entry in cap1["evidence"]["files"]}
++        self.assertIn("src/organs/cache.py", paths)
++        cache = next(entry for entry in cap1["evidence"]["files"] if entry["path"] == "src/organs/cache.py")
++        self.assertIn("stable_cache_key", cache["symbols"])
++        self.assertIn("deterministic", cap1["signals"]["tags"])
++        ok, reason = beacon.verify_capsule(cap1)
++        self.assertTrue(ok, reason)
++
++    def test_tampering_breaks_capsule_identity(self):
++        root = self.make_repo()
++        base, head = self.add_reusable_change(root)
++        capsule = beacon.publish(root, base, head, root / "feed", ".axm/beacon.json")
++        capsule["signals"]["attention_score"] += 100
++        ok, _ = beacon.verify_capsule(capsule)
++        self.assertFalse(ok)
++
++    def test_excluded_paths_never_leak_into_patch(self):
++        root = self.make_repo()
++        config_path = root / ".axm" / "beacon.json"
++        config = json.loads(config_path.read_text(encoding="utf-8"))
++        config["publish"]["exclude"].append("private/**")
++        config_path.write_text(json.dumps(config), encoding="utf-8")
++        base = git(root, "rev-parse", "HEAD")
++        (root / "src").mkdir()
++        (root / "private").mkdir()
++        (root / "src" / "safe.py").write_text("def share_me():\n    return 1\n", encoding="utf-8")
++        (root / "private" / "secret.txt").write_text("DO-NOT-LEAK-123\n", encoding="utf-8")
++        git(root, "add", ".")
++        git(root, "commit", "-qm", "safe plus excluded secret")
++        head = git(root, "rev-parse", "HEAD")
++        capsule = beacon.publish(root, base, head, root / "feed", ".axm/beacon.json")
++        patch = (root / "feed" / "patches" / f"{capsule['capsule_id']}.patch").read_text(encoding="utf-8")
++        self.assertIn("share_me", patch)
++        self.assertNotIn("DO-NOT-LEAK-123", patch)
++        self.assertNotIn("private/secret.txt", patch)
++
++    def test_receiver_interest_changes_ranking_without_changing_truth(self):
++        indexes = [
++            {
++                "protocol": beacon.PROTOCOL,
++                "repo": "example/source",
++                "capsules": [
++                    {
++                        "capsule_id": "a",
++                        "repo": "example/source",
++                        "tags": ["cache", "deterministic"],
++                        "kinds": ["organ-capability"],
++                        "attention_score": 5,
++                    },
++                    {
++                        "capsule_id": "b",
++                        "repo": "example/source",
++                        "tags": ["shader", "visual"],
++                        "kinds": ["code"],
++                        "attention_score": 8,
++                    },
++                ],
++            }
++        ]
++        ranked = beacon.rank_candidates(indexes, "example/receiver", ["deterministic cache"])
++        self.assertEqual(ranked[0]["capsule_id"], "a")
++        self.assertEqual(ranked[0]["interest_overlap"], ["cache", "deterministic"])
++
++
++if __name__ == "__main__":
++    unittest.main()

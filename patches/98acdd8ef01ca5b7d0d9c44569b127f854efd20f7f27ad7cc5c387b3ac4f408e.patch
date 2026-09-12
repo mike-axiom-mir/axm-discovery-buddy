@@ -1,0 +1,323 @@
+diff --git a/.github/workflows/discovery-map-viewer.yml b/.github/workflows/discovery-map-viewer.yml
+new file mode 100644
+index 0000000..86a2715
+--- /dev/null
++++ b/.github/workflows/discovery-map-viewer.yml
+@@ -0,0 +1,31 @@
++name: Discovery Map Viewer
++
++on:
++  pull_request:
++    paths:
++      - 'viewer/**'
++      - '.github/workflows/discovery-map-viewer.yml'
++      - 'discovery_buddy/**'
++      - 'tests/test_scanner.py'
++  workflow_dispatch:
++
++permissions:
++  contents: read
++
++jobs:
++  viewer-contract:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: '3.11'
++      - uses: actions/setup-node@v4
++        with:
++          node-version: '22'
++      - name: Scanner contract
++        run: python -m unittest -v tests/test_scanner.py
++      - name: Viewer model contract
++        run: node --test viewer/discovery-map.test.mjs
++      - name: JavaScript syntax
++        run: node --check viewer/discovery-map.mjs
+diff --git a/viewer/discovery-map.html b/viewer/discovery-map.html
+new file mode 100644
+index 0000000..976bdfd
+--- /dev/null
++++ b/viewer/discovery-map.html
+@@ -0,0 +1,69 @@
++<!doctype html>
++<html lang="en">
++<head>
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width,initial-scale=1">
++<title>AXM Discovery Map</title>
++<style>
++:root{color-scheme:dark;--bg:#080d13;--panel:#101820;--panel2:#141f29;--line:#283745;--text:#eef5f8;--muted:#9db0bc;--accent:#65e2c2;--warm:#f5c56b;--danger:#ff9d86;--radius:18px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
++*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;min-height:100vh;background:radial-gradient(circle at 12% 0%,#132530 0,transparent 38rem),var(--bg);color:var(--text)}
++button,input{font:inherit}.shell{max-width:1480px;margin:auto;padding:24px}.mast{display:grid;grid-template-columns:1fr auto;gap:18px;align-items:end;margin-bottom:18px}.eyebrow{font-size:.76rem;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:800}.mast h1{margin:.3rem 0 .2rem;font-size:clamp(2rem,5vw,4.2rem);letter-spacing:-.055em;line-height:.95}.mast p{max-width:72ch;margin:0;color:var(--muted)}
++.truth{border:1px solid var(--line);border-radius:999px;padding:9px 13px;color:var(--muted);background:#0b1219;white-space:nowrap}.truth strong{color:var(--accent)}
++.loader{border:1px dashed #385165;background:linear-gradient(135deg,#0e1922,#0b1118);border-radius:var(--radius);padding:28px;display:grid;gap:14px;place-items:start;transition:border-color .18s ease,transform .18s ease}.loader.drag{border-color:var(--accent);transform:translateY(-2px)}.loader h2{margin:0}.loader p{margin:0;color:var(--muted)}
++.pick{border:1px solid #446377;background:#162734;color:var(--text);border-radius:12px;padding:10px 14px;cursor:pointer;font-weight:750}.pick:hover,.pick:focus-visible{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px #65e2c222}.file-note{font-size:.86rem;color:var(--muted)}
++.error{display:none;border:1px solid #743e35;background:#251613;color:#ffd5cc;border-radius:14px;padding:12px 14px}.error.show{display:block}.app{display:none}.app.ready{display:block}
++.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}.stat{border:1px solid var(--line);background:#0d151c;border-radius:14px;padding:13px}.stat .value{font-size:1.5rem;font-weight:850}.stat .label{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
++.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.search{flex:1;min-width:240px;background:#0d151c;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:11px 13px}.search:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px #65e2c222}.filters{display:flex;gap:6px;flex-wrap:wrap}.chip{border:1px solid var(--line);background:#0d151c;color:var(--muted);padding:9px 11px;border-radius:999px;cursor:pointer}.chip[aria-pressed="true"]{color:#06110e;background:var(--accent);border-color:var(--accent);font-weight:800}.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
++.workspace{display:grid;grid-template-columns:minmax(280px,.82fr) minmax(0,1.55fr);gap:12px;min-height:520px}.list,.detail{border:1px solid var(--line);background:#0b1218;border-radius:var(--radius);overflow:hidden}.list-head{padding:13px 14px;border-bottom:1px solid var(--line);color:var(--muted);display:flex;justify-content:space-between}.repo-list{max-height:68vh;overflow:auto;padding:7px}.repo{width:100%;text-align:left;border:1px solid transparent;background:transparent;color:var(--text);border-radius:13px;padding:12px;cursor:pointer;display:grid;gap:6px}.repo:hover{background:#111d26}.repo[aria-selected="true"]{background:#15262c;border-color:#2d806b}.repo:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}.repo-name{font-weight:800}.repo-sub{font-size:.8rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.badges{display:flex;gap:5px;flex-wrap:wrap}.badge{font-size:.69rem;letter-spacing:.045em;text-transform:uppercase;border:1px solid var(--line);border-radius:999px;padding:4px 6px;color:var(--muted)}.badge.cap{color:#aeeedf;border-color:#2b705f}.badge.beacon{color:#f7d798;border-color:#6b5530}.badge.attn{color:#ffc4b5;border-color:#75483d}
++.detail{padding:20px;overflow:auto}.empty{height:100%;min-height:360px;display:grid;place-items:center;color:var(--muted);text-align:center}.detail h2{font-size:clamp(1.6rem,3vw,2.5rem);margin:.2rem 0}.locator{color:var(--muted);word-break:break-all}.section{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}.section h3{margin:0 0 9px;font-size:.78rem;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}.kv{display:grid;grid-template-columns:120px 1fr;gap:8px 12px;font-size:.9rem}.kv div:nth-child(odd){color:var(--muted)}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#cce9e3;word-break:break-all}.tagrow{display:flex;flex-wrap:wrap;gap:7px}.tag{border:1px solid var(--line);background:var(--panel2);border-radius:8px;padding:6px 8px;font-size:.82rem}.caps{display:grid;gap:7px}.caprow{border:1px solid var(--line);background:#101820;border-radius:11px;padding:10px}.caprow strong{display:block}.capmeta{margin-top:4px;color:var(--muted);font-size:.78rem}.boundary{margin-top:14px;border-left:3px solid var(--warm);background:#17150f;padding:12px 14px;color:#e7dcc4;border-radius:0 10px 10px 0}.digest{font-size:.78rem;color:var(--muted);margin-top:12px}.mismatch{color:var(--danger);font-weight:700}.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
++@media(max-width:800px){.shell{padding:15px}.mast{grid-template-columns:1fr}.truth{justify-self:start}.stats{grid-template-columns:repeat(2,1fr)}.workspace{grid-template-columns:1fr}.repo-list{max-height:38vh}.detail{min-height:440px}.kv{grid-template-columns:92px 1fr}.mast h1{font-size:2.65rem}}
++@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
++</style>
++</head>
++<body>
++<main class="shell">
++  <header class="mast">
++    <div><div class="eyebrow">AXM · local fleet observer</div><h1>Discovery Map</h1><p>Turn one deterministic Discovery Buddy index into a readable control surface without changing the index, contacting a service, or granting authority.</p></div>
++    <div class="truth"><strong>DISPLAY</strong> ≠ AUTHORITY</div>
++  </header>
++  <section id="loader" class="loader" aria-labelledby="loadTitle">
++    <h2 id="loadTitle">Open a discovery index</h2>
++    <p>Drop <code>local-discovery.json</code> here or choose it manually. The file stays in this browser tab.</p>
++    <label class="pick" for="fileInput">Choose JSON file</label>
++    <input class="sr" id="fileInput" type="file" accept="application/json,.json">
++    <div class="file-note">Expected schema: <code>axm.discovery-index/v0.1</code> · Shortcut after load: <strong>/</strong> search, <strong>↑/↓</strong> browse.</div>
++  </section>
++  <div id="error" class="error" role="alert"></div>
++  <section id="app" class="app" aria-label="Discovery map">
++    <div class="stats" id="stats"></div>
++    <div class="toolbar">
++      <input id="search" class="search" type="search" autocomplete="off" placeholder="Search repo, branch, capability, tag or interest…" aria-label="Search discovered repositories">
++      <div class="filters" aria-label="Repository filters">
++        <button class="chip" data-filter="all" aria-pressed="true">All</button><button class="chip" data-filter="capabilities" aria-pressed="false">Capabilities</button><button class="chip" data-filter="beacons" aria-pressed="false">Beacons</button><button class="chip" data-filter="attention" aria-pressed="false">Needs orientation</button>
++      </div>
++    </div>
++    <div class="workspace">
++      <section class="list" aria-label="Discovered repositories"><div class="list-head"><span>Repositories</span><span id="count">0 shown</span></div><div id="repoList" class="repo-list" role="listbox" aria-label="Repository list"></div></section>
++      <section id="detail" class="detail" aria-live="polite"><div class="empty">Select a repository to inspect its bounded discovery evidence.</div></section>
++    </div>
++    <div id="digest" class="digest"></div>
++  </section>
++  <div id="live" class="sr" aria-live="polite"></div>
++</main>
++<script type="module">
++import { filterRepositories, parseDiscoveryIndex, summarizeIndex } from './discovery-map.mjs';
++const el=(id)=>document.getElementById(id);const loader=el('loader'),input=el('fileInput'),error=el('error'),app=el('app'),search=el('search'),repoList=el('repoList'),detail=el('detail'),count=el('count'),live=el('live');let index=null,filter='all',visible=[],selectedIdentity=null;
++function esc(value=''){return String(value).replace(/[&<>"']/g,(ch)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}function short(value,n=12){return value?`${value.slice(0,n)}${value.length>n?'…':''}`:'UNKNOWN';}
++function showError(message){error.textContent=`Held: ${message}`;error.classList.add('show');live.textContent=error.textContent;}function clearError(){error.classList.remove('show');error.textContent='';}
++function statsHtml(summary){return [[summary.repositories,'Repositories'],[summary.capability_records,'Capabilities'],[summary.beacons,'Beacons'],[summary.mismatchCount,'Index mismatches']].map(([value,label])=>`<div class="stat"><div class="value ${label==='Index mismatches'&&value?'mismatch':''}">${esc(value)}</div><div class="label">${esc(label)}</div></div>`).join('');}
++function renderDetail(repo){if(!repo){detail.innerHTML='<div class="empty">No repository matches the current view.</div>';return;}const evidence=repo.isPublic?`<div class="kv"><div>Visibility</div><div>Public-safe declared fields only</div><div>Marker</div><div>Explicit public marker required by index policy</div></div>`:`<div class="kv"><div>Branch</div><div><code>${esc(repo.branch||'UNKNOWN')}</code>${repo.detached?' · detached':''}</div><div>Head</div><div><code>${esc(repo.head||'UNKNOWN')}</code></div><div>README</div><div>${repo.readmePresent?'present':'not reported present'}</div><div>AGENTS</div><div>${repo.agentsPresent?'present':'not reported present'}</div><div>Public marker</div><div>${repo.publicMarkerEligible?'eligible':'not eligible / not declared'}</div></div>`;const beacon=repo.beaconPresent?`<div class="section"><h3>Beacon evidence</h3><div class="kv"><div>Protocol</div><div><code>${esc(repo.beaconProtocol||'UNKNOWN')}</code></div><div>Repo label</div><div>${esc(repo.beaconRepo||'not declared')}</div></div>${repo.beaconTags.length?`<div class="tagrow" style="margin-top:10px">${repo.beaconTags.map(t=>`<span class="tag">#${esc(t)}</span>`).join('')}</div>`:''}${repo.beaconInterests.length?`<div class="tagrow" style="margin-top:7px">${repo.beaconInterests.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>`:''}</div>`:`<div class="section"><h3>Beacon evidence</h3><div class="locator">No beacon declared in this index.</div></div>`;const caps=repo.capabilities.length?repo.capabilities.map(cap=>`<div class="caprow"><strong>${esc(cap.id)}</strong><div class="capmeta">${cap.status?`status ${esc(cap.status)} · `:''}${cap.providers.length?`providers ${esc(cap.providers.join(', '))} · `:''}${cap.consumers.length?`consumers ${esc(cap.consumers.join(', '))} · `:''}${cap.source?`source ${esc(cap.source)}${cap.line?`:${cap.line}`:''}`:'source not reported'}</div></div>`).join(''):`<div class="locator">No capability declarations in this index.</div>`;detail.innerHTML=`<div class="eyebrow">${repo.isPublic?'public-safe record':'local record'}</div><h2>${esc(repo.title)}</h2><div class="locator">${esc(repo.locator||'No locator reported')}</div><div class="section"><h3>Orientation</h3>${evidence}</div>${beacon}<div class="section"><h3>Declared capabilities · ${repo.capabilities.length}</h3><div class="caps">${caps}</div></div><div class="boundary"><strong>Truth boundary:</strong> this is a read-only realization of discovery evidence. A capability declaration, beacon, branch, or Git head is not runtime proof, quality, authority, merge status, or CANON.</div>`;}
++function renderList(){visible=filterRepositories(index,search.value,filter);if(!visible.some((repo)=>repo.identity===selectedIdentity))selectedIdentity=visible[0]?.identity??null;count.textContent=`${visible.length} shown`;repoList.innerHTML=visible.map((repo)=>`<button class="repo" role="option" aria-selected="${repo.identity===selectedIdentity}" data-id="${esc(repo.identity)}"><span class="repo-name">${esc(repo.title)}</span><span class="repo-sub">${esc(repo.locator||repo.branch||'bounded public record')}</span><span class="badges">${repo.capabilities.length?`<span class="badge cap">${repo.capabilities.length} cap${repo.capabilities.length===1?'':'s'}</span>`:''}${repo.beaconPresent?'<span class="badge beacon">beacon</span>':''}${repo.attention?'<span class="badge attn">orientation gap</span>':''}</span></button>`).join('');renderDetail(visible.find((repo)=>repo.identity===selectedIdentity)??null);}
++function select(identity,announce=true){selectedIdentity=identity;renderList();const target=repoList.querySelector(`[data-id="${CSS.escape(identity)}"]`);target?.focus();if(announce){const repo=visible.find(r=>r.identity===identity);if(repo)live.textContent=`Selected ${repo.title}`;}}
++repoList.addEventListener('click',(event)=>{const button=event.target.closest('.repo');if(button)select(button.dataset.id,false);});search.addEventListener('input',renderList);document.querySelectorAll('.chip').forEach((button)=>button.addEventListener('click',()=>{filter=button.dataset.filter;document.querySelectorAll('.chip').forEach((b)=>b.setAttribute('aria-pressed',String(b===button)));renderList();live.textContent=`Filter ${button.textContent.trim()}`;}));
++function loadObject(raw,sourceLabel){clearError();try{index=parseDiscoveryIndex(raw);}catch(err){showError(err instanceof Error?err.message:String(err));return;}const summary=summarizeIndex(index);el('stats').innerHTML=statsHtml(summary);loader.hidden=true;app.classList.add('ready');search.value='';filter='all';document.querySelectorAll('.chip').forEach((b)=>b.setAttribute('aria-pressed',String(b.dataset.filter==='all')));selectedIdentity=index.repositories[0]?.identity??null;renderList();el('digest').innerHTML=`Loaded <strong>${esc(sourceLabel)}</strong> · ${esc(index.visibility)} · digest <code>${esc(short(index.contentSha256,18))}</code>${summary.mismatchCount?` · <span class="mismatch">${summary.mismatchCount} summary mismatch${summary.mismatchCount===1?'':'es'} detected</span>`:''}`;live.textContent=`Loaded ${summary.repositories} repositories from ${sourceLabel}`;}
++async function loadFile(file){if(!file)return;try{const text=await file.text();loadObject(JSON.parse(text),file.name);}catch(err){showError(`Could not read JSON: ${err instanceof Error?err.message:String(err)}`);}}input.addEventListener('change',()=>loadFile(input.files?.[0]));['dragenter','dragover'].forEach((name)=>loader.addEventListener(name,(event)=>{event.preventDefault();loader.classList.add('drag');}));['dragleave','drop'].forEach((name)=>loader.addEventListener(name,(event)=>{event.preventDefault();loader.classList.remove('drag');}));loader.addEventListener('drop',(event)=>loadFile(event.dataTransfer?.files?.[0]));
++document.addEventListener('keydown',(event)=>{if(!index)return;const typing=['INPUT','TEXTAREA'].includes(document.activeElement?.tagName);if(event.key==='/'&&!typing){event.preventDefault();search.focus();return;}if(event.key==='Escape'&&document.activeElement===search&&search.value){search.value='';renderList();return;}if((event.key==='ArrowDown'||event.key==='ArrowUp')&&!typing){event.preventDefault();if(!visible.length)return;const current=Math.max(0,visible.findIndex(r=>r.identity===selectedIdentity));const delta=event.key==='ArrowDown'?1:-1;select(visible[(current+delta+visible.length)%visible.length].identity);}});
++window.__AXM_DISCOVERY_VIEWER__={loadObject,getState:()=>({visibility:index?.visibility??null,visible:visible.length,selected:selectedIdentity,filter,query:search.value})};
++</script>
++</body>
++</html>
+diff --git a/viewer/discovery-map.mjs b/viewer/discovery-map.mjs
+new file mode 100644
+index 0000000..bce47ad
+--- /dev/null
++++ b/viewer/discovery-map.mjs
+@@ -0,0 +1,135 @@
++export const INDEX_SCHEMA = 'axm.discovery-index/v0.1';
++
++function asArray(value) {
++  return Array.isArray(value) ? value : [];
++}
++
++function asString(value) {
++  return typeof value === 'string' ? value : '';
++}
++
++function uniqStrings(values) {
++  return [...new Set(asArray(values).filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim()))].sort();
++}
++
++function capabilityRecord(record) {
++  return {
++    id: asString(record?.id),
++    status: asString(record?.status),
++    providers: uniqStrings(record?.providers),
++    consumers: uniqStrings(record?.consumers),
++    source: asString(record?.source),
++    line: Number.isInteger(record?.line) ? record.line : null,
++  };
++}
++
++function normalizeRepo(repo, visibility, index) {
++  const isPublic = visibility === 'PUBLIC_SAFE_DECLARED_ONLY';
++  const capabilities = asArray(repo?.capabilities?.records)
++    .map(capabilityRecord)
++    .filter((record) => record.id);
++  const beacon = repo?.beacon && typeof repo.beacon === 'object' ? repo.beacon : {};
++  const git = repo?.git && typeof repo.git === 'object' ? repo.git : {};
++  const title = isPublic
++    ? asString(repo?.display_name) || asString(repo?.repo) || 'Unnamed repository'
++    : asString(repo?.name) || asString(repo?.path) || 'Unnamed repository';
++  const locator = isPublic ? asString(repo?.repo) : asString(repo?.path);
++  const identity = `${isPublic ? 'public' : 'local'}:${locator || title}:${index}`;
++  const readmePresent = isPublic ? null : repo?.readme?.present === true;
++  const agentsPresent = isPublic ? null : repo?.agents?.present === true;
++  const publicMarkerEligible = isPublic ? true : repo?.public_marker?.eligible === true;
++  const attention = !isPublic && (!readmePresent || !agentsPresent || !git?.head);
++  const searchText = [
++    title,
++    locator,
++    asString(git?.branch),
++    ...uniqStrings(beacon?.tags),
++    ...uniqStrings(beacon?.interests),
++    ...capabilities.flatMap((record) => [record.id, record.status, ...record.providers, ...record.consumers]),
++  ].join(' ').toLowerCase();
++
++  return {
++    identity,
++    title,
++    locator,
++    isPublic,
++    branch: asString(git?.branch),
++    head: asString(git?.head),
++    detached: git?.detached === true,
++    readmePresent,
++    agentsPresent,
++    publicMarkerEligible,
++    beaconPresent: beacon?.present === true,
++    beaconProtocol: asString(beacon?.protocol),
++    beaconRepo: asString(beacon?.repo),
++    beaconTags: uniqStrings(beacon?.tags),
++    beaconInterests: uniqStrings(beacon?.interests),
++    capabilities,
++    attention,
++    searchText,
++  };
++}
++
++export function parseDiscoveryIndex(input) {
++  if (!input || typeof input !== 'object' || Array.isArray(input)) {
++    throw new Error('Index must be one JSON object.');
++  }
++  if (input.schema !== INDEX_SCHEMA) {
++    throw new Error(`Unsupported schema: ${asString(input.schema) || 'missing'}. Expected ${INDEX_SCHEMA}.`);
++  }
++  const visibility = asString(input.visibility);
++  if (!['LOCAL_ONLY', 'PUBLIC_SAFE_DECLARED_ONLY'].includes(visibility)) {
++    throw new Error(`Unsupported visibility: ${visibility || 'missing'}.`);
++  }
++  if (!Array.isArray(input.repositories)) {
++    throw new Error('Index repositories must be an array.');
++  }
++  const repositories = input.repositories.map((repo, index) => normalizeRepo(repo, visibility, index));
++  const declaredSummary = input.summary && typeof input.summary === 'object' ? input.summary : {};
++  const derivedSummary = {
++    repositories: repositories.length,
++    capability_records: repositories.reduce((sum, repo) => sum + repo.capabilities.length, 0),
++    beacons: repositories.filter((repo) => repo.beaconPresent).length,
++  };
++
++  return {
++    schema: INDEX_SCHEMA,
++    visibility,
++    contentSha256: asString(input.content_sha256),
++    policy: input.policy && typeof input.policy === 'object' ? input.policy : {},
++    repositories,
++    declaredSummary: {
++      repositories: Number.isInteger(declaredSummary.repositories) ? declaredSummary.repositories : null,
++      capability_records: Number.isInteger(declaredSummary.capability_records) ? declaredSummary.capability_records : null,
++      beacons: Number.isInteger(declaredSummary.beacons) ? declaredSummary.beacons : null,
++    },
++    derivedSummary,
++  };
++}
++
++export function filterRepositories(index, query = '', filter = 'all') {
++  const needle = query.trim().toLowerCase();
++  return index.repositories.filter((repo) => {
++    if (needle && !repo.searchText.includes(needle)) return false;
++    if (filter === 'capabilities' && repo.capabilities.length === 0) return false;
++    if (filter === 'beacons' && !repo.beaconPresent) return false;
++    if (filter === 'attention' && !repo.attention) return false;
++    return true;
++  });
++}
++
++export function summarizeIndex(index) {
++  const derived = index.derivedSummary;
++  const declared = index.declaredSummary;
++  const mismatches = [];
++  for (const key of ['repositories', 'capability_records', 'beacons']) {
++    if (declared[key] !== null && declared[key] !== derived[key]) {
++      mismatches.push({ field: key, declared: declared[key], derived: derived[key] });
++    }
++  }
++  return {
++    ...derived,
++    mismatchCount: mismatches.length,
++    mismatches,
++  };
++}
+diff --git a/viewer/discovery-map.test.mjs b/viewer/discovery-map.test.mjs
+new file mode 100644
+index 0000000..b51a131
+--- /dev/null
++++ b/viewer/discovery-map.test.mjs
+@@ -0,0 +1,64 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { filterRepositories, parseDiscoveryIndex, summarizeIndex } from './discovery-map.mjs';
++
++const LOCAL = {
++  schema: 'axm.discovery-index/v0.1',
++  visibility: 'LOCAL_ONLY',
++  content_sha256: 'a'.repeat(64),
++  summary: { repositories: 2, capability_records: 2, beacons: 1 },
++  repositories: [
++    {
++      path: 'alpha', name: 'alpha',
++      git: { branch: 'main', head: '1'.repeat(40), detached: false },
++      readme: { present: true }, agents: { present: true },
++      public_marker: { eligible: true },
++      beacon: { present: true, protocol: 'axm-beacon/0.1', tags: ['game'], interests: ['state protocol'] },
++      capabilities: { records: [
++        { id: 'state:snapshot', status: 'IMPLEMENTED', providers: ['alpha'], consumers: ['viewer'], source: 'registry/capabilities.jsonl', line: 1 },
++        { id: 'game:launch', providers: ['alpha'], consumers: [], source: 'registry/capabilities.jsonl', line: 2 },
++      ] },
++    },
++    {
++      path: 'beta', name: 'beta',
++      git: { branch: 'dev', head: null, detached: false },
++      readme: { present: true }, agents: { present: false },
++      public_marker: { eligible: false },
++      beacon: { present: false },
++      capabilities: { records: [] },
++    },
++  ],
++};
++
++test('normalizes local discovery evidence without granting authority', () => {
++  const index = parseDiscoveryIndex(LOCAL);
++  assert.equal(index.repositories.length, 2);
++  assert.equal(index.repositories[0].capabilities[0].id, 'state:snapshot');
++  assert.equal(index.repositories[1].attention, true);
++  assert.deepEqual(summarizeIndex(index).mismatches, []);
++});
++
++test('filters by human search terms and bounded evidence views', () => {
++  const index = parseDiscoveryIndex(LOCAL);
++  assert.deepEqual(filterRepositories(index, 'snapshot').map((repo) => repo.title), ['alpha']);
++  assert.deepEqual(filterRepositories(index, '', 'beacons').map((repo) => repo.title), ['alpha']);
++  assert.deepEqual(filterRepositories(index, '', 'attention').map((repo) => repo.title), ['beta']);
++});
++
++test('public-safe index never invents stripped local state', () => {
++  const index = parseDiscoveryIndex({
++    schema: 'axm.discovery-index/v0.1',
++    visibility: 'PUBLIC_SAFE_DECLARED_ONLY',
++    summary: { repositories: 1, capability_records: 0, beacons: 0 },
++    repositories: [{ repo: 'example/public', display_name: 'Public', beacon: { present: false }, capabilities: { records: [] } }],
++  });
++  assert.equal(index.repositories[0].locator, 'example/public');
++  assert.equal(index.repositories[0].branch, '');
++  assert.equal(index.repositories[0].readmePresent, null);
++  assert.equal(index.repositories[0].attention, false);
++});
++
++test('fails closed on unsupported index identity', () => {
++  assert.throws(() => parseDiscoveryIndex({ schema: 'future', visibility: 'LOCAL_ONLY', repositories: [] }), /Unsupported schema/);
++  assert.throws(() => parseDiscoveryIndex({ schema: 'axm.discovery-index\/v0.1', visibility: 'UNKNOWN', repositories: [] }), /Unsupported visibility/);
++});

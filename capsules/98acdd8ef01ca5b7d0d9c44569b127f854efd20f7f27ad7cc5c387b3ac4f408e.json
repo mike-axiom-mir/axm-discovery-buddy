@@ -1,0 +1,153 @@
+{
+  "capsule_id": "98acdd8ef01ca5b7d0d9c44569b127f854efd20f7f27ad7cc5c387b3ac4f408e",
+  "evidence": {
+    "files": [
+      {
+        "additions": 31,
+        "binary": false,
+        "content_sha256": "710eb03ed9fb7f807f31adbd102afd1db49d149d1b150e06863048fcea711d64",
+        "deletions": 0,
+        "path": ".github/workflows/discovery-map-viewer.yml",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 69,
+        "binary": false,
+        "content_sha256": "3037dc907e9e32efeb744e1d0b34200b1cc728d7289069ede94c2dc32a7e62ea",
+        "deletions": 0,
+        "path": "viewer/discovery-map.html",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 135,
+        "binary": false,
+        "content_sha256": "26a4ed45e95020c810c5e8d2f709401f6a4bcadc06c2548ec133e0b39aa5fcee",
+        "deletions": 0,
+        "path": "viewer/discovery-map.mjs",
+        "status": "A",
+        "symbols": [
+          "INDEX_SCHEMA",
+          "asArray",
+          "asString",
+          "uniqStrings",
+          "capabilityRecord",
+          "normalizeRepo",
+          "isPublic",
+          "capabilities",
+          "beacon",
+          "git",
+          "title",
+          "locator",
+          "identity",
+          "readmePresent",
+          "agentsPresent",
+          "publicMarkerEligible",
+          "attention",
+          "searchText",
+          "parseDiscoveryIndex",
+          "visibility",
+          "repositories",
+          "declaredSummary",
+          "derivedSummary",
+          "filterRepositories",
+          "needle",
+          "summarizeIndex",
+          "derived",
+          "declared",
+          "mismatches",
+          "key"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 64,
+        "binary": false,
+        "content_sha256": "111af4916d6a9af629c9a596549be1ebde9a1b635c1bb019c17d450a5898ba63",
+        "deletions": 0,
+        "path": "viewer/discovery-map.test.mjs",
+        "status": "A",
+        "symbols": [
+          "LOCAL",
+          "index"
+        ],
+        "topics": []
+      }
+    ],
+    "patch_sha256": "8314d0d4ca30ac83ba48d00f7123b71efbd39fd8aa9073d58ee9a6814d337672"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 5,
+    "kinds": [
+      "code",
+      "configuration",
+      "test-change"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "agents",
+      "array",
+      "attention",
+      "axm",
+      "beacon",
+      "capabilities",
+      "capability",
+      "declared",
+      "derived",
+      "discovery",
+      "eligible",
+      "filter",
+      "git",
+      "github",
+      "html",
+      "identity",
+      "integrate",
+      "key",
+      "local",
+      "locator",
+      "map",
+      "marker",
+      "mismatches",
+      "mjs",
+      "needle",
+      "normalize",
+      "only",
+      "parse",
+      "present",
+      "read",
+      "readme",
+      "record",
+      "repo",
+      "repositories",
+      "schema",
+      "search",
+      "standalone",
+      "string",
+      "strings",
+      "summarize",
+      "summary",
+      "text",
+      "title",
+      "uniq",
+      "viewer",
+      "visibility",
+      "workflows",
+      "yml"
+    ]
+  },
+  "source": {
+    "base": "3107323493fba2e582103946f66d8ec4f3b03476",
+    "commit_subject": "Integrate read-only Discovery Map",
+    "head": "1712ab75bbcfbc9b3045921cc6083d38be2695dc",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}

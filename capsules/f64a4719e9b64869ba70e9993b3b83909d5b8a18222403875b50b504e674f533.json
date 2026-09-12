@@ -1,0 +1,64 @@
+{
+  "capsule_id": "f64a4719e9b64869ba70e9993b3b83909d5b8a18222403875b50b504e674f533",
+  "evidence": {
+    "files": [
+      {
+        "additions": 31,
+        "binary": false,
+        "content_sha256": "23d1c7123bdd13d9f2103223e13d5bc7b20af1a381ba62de4bd2c8289c53cbb2",
+        "deletions": 1,
+        "path": "README.md",
+        "status": "M",
+        "symbols": [],
+        "topics": [
+          "AXM Discovery Buddy",
+          "Current truth",
+          "Intended public direction",
+          "Project status"
+        ]
+      }
+    ],
+    "patch_sha256": "04e449e06b8cd2fee3c92b0c98e952d1ae336d89fb3d9e0c31b6558851f78332"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 1,
+    "kinds": [
+      "knowledge"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "axiom",
+      "axm",
+      "buddy",
+      "current",
+      "direction",
+      "discoverability",
+      "discovery",
+      "from",
+      "github",
+      "intended",
+      "merge",
+      "mike",
+      "mir",
+      "project",
+      "pull",
+      "readme",
+      "request",
+      "standalone",
+      "status",
+      "truth"
+    ]
+  },
+  "source": {
+    "base": "293eba0f0dc9828a11843bbe5be79b2a97c3653e",
+    "commit_subject": "Merge pull request #3 from mike-axiom-mir/ai/github-discoverability-2026-09-04",
+    "head": "0ef4e93f30e6aeba7ab1bdc524d82bde6460177b",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}

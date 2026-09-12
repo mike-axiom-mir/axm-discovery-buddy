@@ -1,0 +1,262 @@
+{
+  "capsule_id": "ed6d7ab58a91524e670ed060e42703569805b6c33fdbbbc3d34aa62f1eb28c2f",
+  "evidence": {
+    "files": [
+      {
+        "additions": 88,
+        "binary": false,
+        "content_sha256": "1169ff74fec620f6f2441128f8d89744841927446a846c86cb51b5e24596b387",
+        "deletions": 0,
+        "path": ".github/workflows/discovery-capability-query.yml",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 53,
+        "binary": false,
+        "content_sha256": "376282ae6d34ff19df13b5702fdb98c6f0bf86fb2b3b18e82bd3b2f99f731abd",
+        "deletions": 0,
+        "path": ".github/workflows/portable-discovery-zipapp.yml",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 423,
+        "binary": false,
+        "content_sha256": "cd1148f44f83811ae132e64b733ea252e77a051f147eb55cce46b726315b50e1",
+        "deletions": 0,
+        "path": "discovery_buddy/_cli_core.py",
+        "status": "A",
+        "symbols": [
+          "_serialized",
+          "_paths",
+          "_transaction_path",
+          "_temp_path",
+          "_stage_text",
+          "_backup_existing",
+          "_sha256_regular",
+          "_is_sha256",
+          "_safe_artifact",
+          "_write_transaction",
+          "_load_transaction",
+          "_target_digest",
+          "_old_state_matches",
+          "_cleanup_transaction_artifacts",
+          "_restore_target_from_backup",
+          "_recover_pair",
+          "_publish_pair",
+          "_build_parser",
+          "_pending_transaction_error",
+          "main"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 44,
+        "binary": false,
+        "content_sha256": "deb0cd00270502638427b182c3d92e5f713ae17f580131f8fad7050f00ef44e4",
+        "deletions": 403,
+        "path": "discovery_buddy/cli.py",
+        "status": "M",
+        "symbols": [
+          "_sync_core_hooks",
+          "_query_parser",
+          "_query_main",
+          "main"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 210,
+        "binary": false,
+        "content_sha256": "641638bcc85c68aaa1c585062e2893f61bc9aed37debd5ca027bb5c4f35b477e",
+        "deletions": 0,
+        "path": "discovery_buddy/query.py",
+        "status": "A",
+        "symbols": [
+          "_canonical_json",
+          "_sha256",
+          "_is_sha256",
+          "_repo_identity",
+          "_validate_capability",
+          "validate_index",
+          "load_index",
+          "query_capabilities"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 54,
+        "binary": false,
+        "content_sha256": "f663ac5fb7aeefa06673ae5094dcb196f40f43e3959f2300fc37e388e8509e05",
+        "deletions": 0,
+        "path": "docs/DISCOVERY_QUERY.md",
+        "status": "A",
+        "symbols": [],
+        "topics": [
+          "Discovery capability query",
+          "Usage",
+          "Admission before query",
+          "Output",
+          "Truth boundary"
+        ]
+      },
+      {
+        "additions": 55,
+        "binary": false,
+        "content_sha256": "b87349b12d7dcca9f1e624c05ae968d29d2b8472eda5a31cedd5d327ce7ae004",
+        "deletions": 0,
+        "path": "docs/PORTABLE_ZIPAPP.md",
+        "status": "A",
+        "symbols": [],
+        "topics": [
+          "Portable Discovery Buddy zipapp",
+          "Purpose",
+          "Deterministic package contract",
+          "Authority and provenance boundary"
+        ]
+      },
+      {
+        "additions": 198,
+        "binary": false,
+        "content_sha256": "472810438a0377f41175051bce0c1eee678748b1c6d9afe9f589489b0ac530b2",
+        "deletions": 0,
+        "path": "tests/test_portable_zipapp.py",
+        "status": "A",
+        "symbols": [
+          "_run",
+          "PortableZipappTests"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 122,
+        "binary": false,
+        "content_sha256": "54162c7788683f44bfb67b8186f4b5b6d73562cd44ef2673b0b327284c57a907",
+        "deletions": 0,
+        "path": "tests/test_query.py",
+        "status": "A",
+        "symbols": [
+          "CapabilityQueryTests"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 219,
+        "binary": false,
+        "content_sha256": "4f089b4840f171df55db4d93e50f40eb04faabf8ef8d04ee3035a324733054d0",
+        "deletions": 0,
+        "path": "tools/build_portable_discovery.py",
+        "status": "A",
+        "symbols": [
+          "SourceEntry",
+          "_is_regular_unlinked",
+          "_collect_sources",
+          "_zip_info",
+          "_archive_bytes",
+          "_source_digest",
+          "_receipt",
+          "_json_bytes",
+          "_safe_output",
+          "build",
+          "verify",
+          "_parser",
+          "main"
+        ],
+        "topics": []
+      }
+    ],
+    "patch_sha256": "2bd5d30b07155ea43d604b32c546f026014a2251c18a3b7a8fde8dd2e7291ee8"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 8,
+    "kinds": [
+      "code",
+      "configuration",
+      "knowledge",
+      "organ-capability",
+      "test-change"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "admission",
+      "archive",
+      "artifact",
+      "artifacts",
+      "authority",
+      "axm",
+      "backup",
+      "before",
+      "boundary",
+      "buddy",
+      "build",
+      "bytes",
+      "canonical",
+      "capabilities",
+      "capability",
+      "cleanup",
+      "cli",
+      "collect",
+      "contract",
+      "deterministic",
+      "digest",
+      "discovery",
+      "entry",
+      "error",
+      "existing",
+      "from",
+      "github",
+      "hooks",
+      "identity",
+      "info",
+      "integrate",
+      "json",
+      "load",
+      "matches",
+      "output",
+      "package",
+      "pair",
+      "parser",
+      "path",
+      "paths",
+      "pending",
+      "portable",
+      "provenance",
+      "publish",
+      "purpose",
+      "query",
+      "receipt",
+      "recover",
+      "regular",
+      "repo",
+      "restore",
+      "run",
+      "safe",
+      "serialized",
+      "sha256",
+      "source",
+      "sources",
+      "stage",
+      "standalone",
+      "state",
+      "sync",
+      "target",
+      "temp",
+      "text"
+    ]
+  },
+  "source": {
+    "base": "8aaafd8080df781d39c1218bb188abd826064d8c",
+    "commit_subject": "Integrate capability query and portable Discovery Buddy",
+    "head": "3107323493fba2e582103946f66d8ec4f3b03476",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}

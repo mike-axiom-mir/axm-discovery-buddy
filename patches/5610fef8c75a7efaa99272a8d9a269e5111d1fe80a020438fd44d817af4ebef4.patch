@@ -1,0 +1,1655 @@
+diff --git a/.github/workflows/discovery-output-durability.yml b/.github/workflows/discovery-output-durability.yml
+new file mode 100644
+index 0000000..8911df8
+--- /dev/null
++++ b/.github/workflows/discovery-output-durability.yml
+@@ -0,0 +1,38 @@
++name: Discovery Output Durability
++
++on:
++  pull_request:
++    paths:
++      - 'README.md'
++      - 'discovery_buddy/cli.py'
++      - 'tests/test_output_durability.py'
++      - 'tests/test_output_single_writer.py'
++      - 'tests/test_scan_source_stability.py'
++      - '.github/workflows/discovery-output-durability.yml'
++  push:
++    branches: [main]
++    paths:
++      - 'README.md'
++      - 'discovery_buddy/cli.py'
++      - 'tests/test_output_durability.py'
++      - 'tests/test_output_single_writer.py'
++      - 'tests/test_scan_source_stability.py'
++      - '.github/workflows/discovery-output-durability.yml'
++
++permissions:
++  contents: read
++
++jobs:
++  durability:
++    runs-on: ubuntu-latest
++    strategy:
++      matrix:
++        python-version: ['3.11', '3.13']
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: ${{ matrix.python-version }}
++      - run: python -m unittest -v tests/test_output_durability.py tests/test_output_single_writer.py tests/test_scan_source_stability.py
++      - run: python -m unittest -v tests/test_scanner.py
++      - run: python -m compileall -q discovery_buddy tests
+diff --git a/.github/workflows/discovery-source-file-admission.yml b/.github/workflows/discovery-source-file-admission.yml
+new file mode 100644
+index 0000000..1859379
+--- /dev/null
++++ b/.github/workflows/discovery-source-file-admission.yml
+@@ -0,0 +1,35 @@
++name: Discovery Source File Admission
++
++on:
++  push:
++    branches:
++      - automation/truth-sentinel-discovery-source-file-admission-20260911
++  pull_request:
++    paths:
++      - 'discovery_buddy/scanner.py'
++      - 'tests/test_source_file_admission.py'
++      - 'tests/test_scanner.py'
++      - '.github/workflows/discovery-source-file-admission.yml'
++      - 'README.md'
++
++permissions:
++  contents: read
++
++jobs:
++  source-file-admission:
++    runs-on: ubuntu-latest
++    strategy:
++      fail-fast: false
++      matrix:
++        python-version: ['3.11', '3.13']
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: ${{ matrix.python-version }}
++      - name: Compile scanner and admission tests
++        run: python -m compileall -q discovery_buddy tests/test_source_file_admission.py tests/test_scanner.py
++      - name: Reproduce scanner source-file admission boundary
++        run: python -m unittest -v tests/test_source_file_admission.py
++      - name: Preserve inherited scanner behavior
++        run: python -m unittest -v tests/test_scanner.py
+diff --git a/README.md b/README.md
+index 1601487..e932d47 100644
+--- a/README.md
++++ b/README.md
+@@ -23,6 +23,20 @@ Rebuild the expected outputs in memory and fail if the saved map has drifted:
+ python -m discovery_buddy verify /path/to/workspace --output-dir /tmp/axm-discovery
+ ```
+ 
++If a prior scanner process died after publication began, `scan` and `verify` stop instead of trusting a possibly mixed JSON/Markdown generation. Recovery is explicit:
++
++```bash
++python -m discovery_buddy recover --output-dir /tmp/axm-discovery
++```
++
++The recovery journal binds both target names plus the exact previous/new SHA-256 values. If both final files are already the complete new generation, recovery finalizes that generation. Otherwise it restores the exact last-good pair from journal-bound backups before removing the transaction marker. Missing or corrupted rollback evidence fails closed and leaves the transaction available for investigation. This is process-crash/restart recovery; sudden-power-loss durability is not claimed.
++
++Publication and recovery also use one non-blocking host-local writer lock per output pair. Ownership starts before a `scan` observes the workspace and stays held through publication, so a newer scanner cannot publish and then be silently overwritten by an older in-flight snapshot. A competing scan/recovery exits with `DISCOVERY_OUTPUT_BUSY` and makes no output mutation; retrying later performs a fresh scan. The lock file is only inert coordination state, carries no discovery data, and may remain on disk. Operating-system descriptor ownership is released automatically when the process exits, so there is no PID/stale-lock record to guess or clear. Local and public output pairs use separate locks.
++
++A publishing `scan` also requires two consecutive complete workspace observations to produce the same deterministic index. If repository evidence changes between those observations, publication stops with `DISCOVERY_SOURCE_CHANGED` before staging or journaling outputs, preserving the prior saved pair for investigation or later retry. This is a bounded stability check, not a source-repository lock or atomic filesystem snapshot: source files can still change after the second observation and before publication.
++
++Scanner evidence files are now admitted as bounded regular files under the repository or already-confined Git directory that owns them. Final-path symlinks and symlinked capability-registry directories are refused; resolved reads must stay inside that admitted root; and the opened descriptor must still identify the file that was admitted before any bytes are accepted. Observable size/time/identity drift during the descriptor-bound read also fails closed. This prevents a stable out-of-workspace symlink from becoming discovery evidence even when two consecutive scans would agree on it, and narrows check-to-use replacement races. It is still not an atomic workspace snapshot or hostile-filesystem sandbox.
++
+ ## What it discovers now
+ 
+ For each local Git repository inside the bounded scan depth, the scanner can report:
+@@ -41,6 +55,8 @@ Default output is `LOCAL_ONLY`.
+ 
+ - The absolute scan root is never written into the index.
+ - Arbitrary source-file contents are not exported.
++- Git directory pointers are followed only when their resolved target remains inside the selected scan root.
++- Named scanner evidence files must be regular admitted files under their owning repository or confined Git directory; external symlink targets are not consumed as evidence.
+ - Common generated/dependency directories such as `.git`, `node_modules`, virtual environments, `dist`, and `build` are excluded from traversal.
+ 
+ Public mode is deliberately fail-closed:
+@@ -57,7 +73,7 @@ That marker is export intent, not proof of licensing, release readiness, runtime
+ 
+ **EXPERIMENTAL / MATERIALIZED v0.1 SCANNER**
+ 
+-Implemented and locally regression-tested in this tree:
++Implemented and regression-tested in this tree:
+ 
+ - deterministic bounded repository discovery;
+ - Git branch/head discovery without requiring a Git subprocess;
+@@ -65,7 +81,12 @@ Implemented and locally regression-tested in this tree:
+ - capability-registry adapter;
+ - deterministic JSON + Markdown index generation;
+ - exact-byte stale-map verification;
+-- explicit local/private versus public-safe output boundary.
++- explicit local/private versus public-safe output boundary;
++- last-good two-file publication rollback for handled I/O failure;
++- explicit journal-bound recovery after a scanner process dies inside the two-file publication window;
++- host-local single-writer admission for each local/public output pair before scan observation and through publication/recovery;
++- fail-closed publication when two consecutive complete source observations disagree;
++- root-confined, descriptor-bound regular-file admission for scanner evidence reads, including symlink/refusal and pre-open identity checks.
+ 
+ Still not implemented or claimed:
+ 
+@@ -74,7 +95,11 @@ Still not implemented or claimed:
+ - resumable million-file scan checkpoints;
+ - pull-request or remote-branch status ingestion;
+ - semantic source-code analysis;
+-- measured large-workspace performance or scale guarantees.
++- measured large-workspace performance or scale guarantees;
++- atomic source snapshots or source-repository locking;
++- hostile-filesystem or adversarial same-inode mutation guarantees;
++- sudden-power-loss or hostile-filesystem transactional guarantees;
++- cross-host/network-filesystem writer exclusion or distributed locking.
+ 
+ A declared capability is discovery evidence, not runtime proof, quality, authority, or CANON. The existing Organ Beacon remains a separate proposal-only evidence transport lane.
+ 
+@@ -86,7 +111,19 @@ Focused scanner suite:
+ python -m unittest -v tests/test_scanner.py
+ ```
+ 
+-GitHub Actions also runs the focused scanner suite plus a real checkout scan/verify smoke test on changes to this surface. The existing Beacon test workflow remains separate and unchanged.
++Scanner source-file admission suite:
++
++```bash
++python -m unittest -v tests/test_source_file_admission.py
++```
++
++Output publication/recovery/single-writer/source-stability suite:
++
++```bash
++python -m unittest -v tests/test_output_durability.py tests/test_output_single_writer.py tests/test_scan_source_stability.py
++```
++
++GitHub Actions runs the focused scanner suite, source-file admission regressions, publication/recovery/single-writer/source-stability regressions, compilation checks, and a real checkout scan/verify smoke test on changes to this surface. The existing Beacon test workflow remains separate and unchanged.
+ 
+ See [`docs/DISCOVERY_INDEX.md`](docs/DISCOVERY_INDEX.md) for the schema, bridge, privacy, and truth boundaries.
+ 
+diff --git a/discovery_buddy/cli.py b/discovery_buddy/cli.py
+index c61b839..d391ee1 100644
+--- a/discovery_buddy/cli.py
++++ b/discovery_buddy/cli.py
+@@ -1,12 +1,20 @@
+ from __future__ import annotations
+ 
+ import argparse
++import hashlib
+ import json
++import os
+ from pathlib import Path
+ import sys
++import tempfile
++from typing import Any
+ 
++from .output_lock import OutputWriterBusy, output_writer_lock
+ from .scanner import render_markdown, scan_workspace
+ 
++TRANSACTION_SCHEMA = "axm.discovery-output-transaction/v0.1"
++MAX_TRANSACTION_BYTES = 64 * 1024
++
+ 
+ def _serialized(index: dict) -> tuple[str, str]:
+     return json.dumps(index, ensure_ascii=False, indent=2, sort_keys=True) + "\n", render_markdown(index)
+@@ -17,6 +25,285 @@ def _paths(output_dir: Path, public: bool) -> tuple[Path, Path]:
+     return output_dir / f"{stem}.json", output_dir / f"{stem}.md"
+ 
+ 
++def _transaction_path(json_path: Path) -> Path:
++    return json_path.parent / f".{json_path.stem}.transaction.json"
++
++
++def _temp_path(path: Path, purpose: str) -> Path:
++    fd, raw_path = tempfile.mkstemp(
++        prefix=f".{path.name}.",
++        suffix=f".{purpose}.tmp",
++        dir=path.parent,
++    )
++    os.close(fd)
++    return Path(raw_path)
++
++
++def _stage_text(path: Path, text: str) -> Path:
++    staged = _temp_path(path, "stage")
++    try:
++        staged.write_text(text, "utf-8")
++    except BaseException:
++        staged.unlink(missing_ok=True)
++        raise
++    return staged
++
++
++def _backup_existing(path: Path) -> Path | None:
++    if path.is_symlink():
++        raise OSError("refusing symlinked discovery output")
++    if not path.exists():
++        return None
++    if not path.is_file():
++        raise OSError("discovery output is not a regular file")
++    backup = _temp_path(path, "backup")
++    try:
++        backup.write_bytes(path.read_bytes())
++    except BaseException:
++        backup.unlink(missing_ok=True)
++        raise
++    return backup
++
++
++def _sha256_regular(path: Path) -> str:
++    if path.is_symlink() or not path.is_file():
++        raise OSError("transaction artifact is not a regular file")
++    return hashlib.sha256(path.read_bytes()).hexdigest()
++
++
++def _is_sha256(value: Any) -> bool:
++    return (
++        isinstance(value, str)
++        and len(value) == 64
++        and all(character in "0123456789abcdef" for character in value)
++    )
++
++
++def _safe_artifact(parent: Path, name: Any) -> Path:
++    if not isinstance(name, str) or not name or Path(name).name != name or name in {".", ".."}:
++        raise OSError("invalid transaction artifact path")
++    return parent / name
++
++
++def _write_transaction(
++    journal_path: Path,
++    targets: list[tuple[Path, Path, Path | None]],
++) -> dict[str, Any]:
++    transaction = {
++        "schema": TRANSACTION_SCHEMA,
++        "targets": [
++            {
++                "target": target.name,
++                "stage": staged.name,
++                "backup": backup.name if backup is not None else None,
++                "new_sha256": _sha256_regular(staged),
++                "old_sha256": _sha256_regular(backup) if backup is not None else None,
++            }
++            for target, staged, backup in targets
++        ],
++    }
++    temporary = _temp_path(journal_path, "journal")
++    try:
++        temporary.write_text(
++            json.dumps(transaction, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
++            "utf-8",
++        )
++        os.replace(temporary, journal_path)
++    finally:
++        temporary.unlink(missing_ok=True)
++    return transaction
++
++
++def _load_transaction(journal_path: Path, expected_targets: tuple[Path, Path]) -> dict[str, Any]:
++    if journal_path.is_symlink() or not journal_path.is_file():
++        raise OSError("transaction journal is not a regular file")
++    if journal_path.stat().st_size > MAX_TRANSACTION_BYTES:
++        raise OSError("transaction journal exceeds size limit")
++
++    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
++        result: dict[str, Any] = {}
++        for key, value in pairs:
++            if key in result:
++                raise ValueError("duplicate transaction key")
++            result[key] = value
++        return result
++
++    try:
++        data = json.loads(journal_path.read_text("utf-8"), object_pairs_hook=reject_duplicate_keys)
++    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
++        raise OSError(f"invalid transaction journal: {exc.__class__.__name__}") from exc
++
++    if not isinstance(data, dict) or data.get("schema") != TRANSACTION_SCHEMA:
++        raise OSError("invalid transaction journal schema")
++    entries = data.get("targets")
++    if not isinstance(entries, list) or len(entries) != 2:
++        raise OSError("invalid transaction target set")
++
++    expected_names = [path.name for path in expected_targets]
++    actual_names = [entry.get("target") if isinstance(entry, dict) else None for entry in entries]
++    if actual_names != expected_names:
++        raise OSError("transaction target mismatch")
++
++    for entry in entries:
++        if not isinstance(entry, dict) or not _is_sha256(entry.get("new_sha256")):
++            raise OSError("invalid transaction target evidence")
++        old_sha = entry.get("old_sha256")
++        if old_sha is not None and not _is_sha256(old_sha):
++            raise OSError("invalid transaction old digest")
++        _safe_artifact(journal_path.parent, entry.get("stage"))
++        backup = entry.get("backup")
++        if backup is not None:
++            _safe_artifact(journal_path.parent, backup)
++        if (old_sha is None) != (backup is None):
++            raise OSError("transaction backup/digest mismatch")
++    return data
++
++
++def _target_digest(path: Path) -> str | None:
++    if path.is_symlink():
++        raise OSError("unsafe symlink at transaction target")
++    if not path.exists():
++        return None
++    return _sha256_regular(path)
++
++
++def _old_state_matches(targets: tuple[Path, Path], transaction: dict[str, Any]) -> bool:
++    return all(
++        _target_digest(target) == entry["old_sha256"]
++        for target, entry in zip(targets, transaction["targets"])
++    )
++
++
++def _cleanup_transaction_artifacts(parent: Path, transaction: dict[str, Any]) -> None:
++    for entry in transaction["targets"]:
++        for field in ("stage", "backup"):
++            name = entry.get(field)
++            if name is not None:
++                _safe_artifact(parent, name).unlink(missing_ok=True)
++
++
++def _restore_target_from_backup(target: Path, backup: Path, expected_sha256: str) -> None:
++    if _sha256_regular(backup) != expected_sha256:
++        raise OSError("transaction backup integrity mismatch")
++    restore = _temp_path(target, "restore")
++    try:
++        restore.write_bytes(backup.read_bytes())
++        if _sha256_regular(restore) != expected_sha256:
++            raise OSError("transaction restore staging mismatch")
++        os.replace(restore, target)
++    finally:
++        restore.unlink(missing_ok=True)
++
++
++def _recover_pair(json_path: Path, md_path: Path) -> str:
++    """Resolve one interrupted two-file publication using only journal-bound evidence."""
++    journal_path = _transaction_path(json_path)
++    targets = (json_path, md_path)
++    transaction = _load_transaction(journal_path, targets)
++    parent = journal_path.parent
++
++    finals_are_new = all(
++        _target_digest(target) == entry["new_sha256"]
++        for target, entry in zip(targets, transaction["targets"])
++    )
++    if finals_are_new:
++        _cleanup_transaction_artifacts(parent, transaction)
++        journal_path.unlink()
++        return "FINALIZED_NEW"
++
++    # Validate every rollback source before changing either final output.
++    for entry in transaction["targets"]:
++        old_sha = entry["old_sha256"]
++        if old_sha is None:
++            continue
++        backup = _safe_artifact(parent, entry["backup"])
++        if _sha256_regular(backup) != old_sha:
++            raise OSError("transaction backup integrity mismatch")
++
++    # Backups are copied rather than consumed so recovery itself can be safely retried.
++    for target, entry in zip(targets, transaction["targets"]):
++        old_sha = entry["old_sha256"]
++        if old_sha is None:
++            if target.is_symlink():
++                raise OSError("unsafe symlink at transaction target")
++            target.unlink(missing_ok=True)
++        else:
++            backup = _safe_artifact(parent, entry["backup"])
++            _restore_target_from_backup(target, backup, old_sha)
++
++    if not _old_state_matches(targets, transaction):
++        raise OSError("rollback verification failed")
++    _cleanup_transaction_artifacts(parent, transaction)
++    journal_path.unlink()
++    return "ROLLED_BACK_LAST_GOOD"
++
++
++def _publish_pair(json_path: Path, json_text: str, md_path: Path, md_text: str) -> None:
++    """Publish one recoverable discovery generation across the JSON/Markdown pair."""
++    journal_path = _transaction_path(json_path)
++    if journal_path.exists() or journal_path.is_symlink():
++        raise OSError("pending discovery output transaction requires recovery")
++
++    targets = ((json_path, json_text), (md_path, md_text))
++    staged: dict[Path, Path] = {}
++    backups: dict[Path, Path | None] = {}
++    published: list[Path] = []
++    transaction: dict[str, Any] | None = None
++
++    try:
++        for path, text in targets:
++            staged[path] = _stage_text(path, text)
++        for path, _text in targets:
++            backups[path] = _backup_existing(path)
++
++        transaction = _write_transaction(
++            journal_path,
++            [(path, staged[path], backups[path]) for path, _text in targets],
++        )
++
++        for path, _text in targets:
++            os.replace(staged[path], path)
++            published.append(path)
++    except OSError as publish_error:
++        rollback_error: OSError | None = None
++        if transaction is not None:
++            for path in reversed(published):
++                entry = transaction["targets"][0 if path == json_path else 1]
++                old_sha = entry["old_sha256"]
++                try:
++                    if old_sha is None:
++                        path.unlink(missing_ok=True)
++                    else:
++                        backup = _safe_artifact(journal_path.parent, entry["backup"])
++                        _restore_target_from_backup(path, backup, old_sha)
++                except OSError as exc:
++                    rollback_error = exc
++                    break
++            if rollback_error is None and not _old_state_matches((json_path, md_path), transaction):
++                rollback_error = OSError("rollback verification failed")
++
++        if rollback_error is not None:
++            raise OSError(
++                f"discovery output publish failed and rollback also failed: {rollback_error.__class__.__name__}"
++            ) from publish_error
++
++        if journal_path.exists() and not journal_path.is_symlink():
++            journal_path.unlink()
++        raise
++    else:
++        # Final outputs are now a complete generation. Keep the journal until cleanup is complete;
++        # if the process dies here, explicit recovery recognizes and finalizes the exact new pair.
++        if transaction is not None:
++            _cleanup_transaction_artifacts(journal_path.parent, transaction)
++        journal_path.unlink()
++    finally:
++        # Before journaling, final paths were never mutated. Once journaled, remaining artifacts
++        # are recovery evidence and must survive an unhandled interruption.
++        if not journal_path.exists() and not journal_path.is_symlink():
++            for temp_path in list(staged.values()) + [p for p in backups.values() if p is not None]:
++                temp_path.unlink(missing_ok=True)
++
++
+ def _build_parser() -> argparse.ArgumentParser:
+     parser = argparse.ArgumentParser(prog="discovery-buddy", description="Deterministic local-first AXM repository discovery scanner")
+     sub = parser.add_subparsers(dest="command", required=True)
+@@ -26,27 +313,104 @@ def _build_parser() -> argparse.ArgumentParser:
+         cmd.add_argument("--output-dir", default=".discovery")
+         cmd.add_argument("--max-depth", type=int, default=4)
+         cmd.add_argument("--public", action="store_true", help="emit only explicitly marked public-safe repository metadata")
++    recover = sub.add_parser("recover", help="explicitly recover an interrupted discovery output transaction")
++    recover.add_argument("--output-dir", default=".discovery")
++    recover.add_argument("--public", action="store_true", help="recover the public-safe output pair instead of local output")
+     return parser
+ 
+ 
++def _pending_transaction_error(journal_path: Path, out_dir: Path, public: bool) -> int:
++    public_flag = " --public" if public else ""
++    print(
++        f"discovery-buddy: ERROR: interrupted output transaction at {journal_path}; "
++        f"run `python -m discovery_buddy recover --output-dir {out_dir}{public_flag}` first",
++        file=sys.stderr,
++    )
++    return 2
++
++
+ def main(argv: list[str] | None = None) -> int:
+     args = _build_parser().parse_args(argv)
+-    try:
+-        index = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
+-    except (OSError, ValueError) as exc:
+-        print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
+-        return 2
+-    json_text, md_text = _serialized(index)
+     out_dir = Path(args.output_dir)
+     json_path, md_path = _paths(out_dir, args.public)
++    journal_path = _transaction_path(json_path)
++
++    if args.command == "recover":
++        if not journal_path.exists() and not journal_path.is_symlink():
++            print("discovery-buddy: no interrupted output transaction found")
++            return 0
++        try:
++            with output_writer_lock(json_path):
++                # Another process may have completed recovery between the initial observation and
++                # lock acquisition. Re-check under ownership instead of treating that as damage.
++                if not journal_path.exists() and not journal_path.is_symlink():
++                    print("discovery-buddy: no interrupted output transaction found")
++                    return 0
++                outcome = _recover_pair(json_path, md_path)
++        except OutputWriterBusy:
++            print(
++                f"discovery-buddy: ERROR: DISCOVERY_OUTPUT_BUSY: another scan/recover owns {json_path.name}",
++                file=sys.stderr,
++            )
++            return 2
++        except OSError as exc:
++            print(f"discovery-buddy: ERROR: output recovery failed: {exc}", file=sys.stderr)
++            return 2
++        print(f"discovery-buddy: RECOVERED: {outcome}")
++        return 0
+ 
+     if args.command == "scan":
+-        out_dir.mkdir(parents=True, exist_ok=True)
+-        json_path.write_text(json_text, "utf-8")
+-        md_path.write_text(md_text, "utf-8")
++        try:
++            out_dir.mkdir(parents=True, exist_ok=True)
++            with output_writer_lock(json_path):
++                # Ownership begins before workspace observation. A later scanner cannot publish a
++                # newer snapshot and then be overwritten by this older in-flight scan.
++                if journal_path.exists() or journal_path.is_symlink():
++                    return _pending_transaction_error(journal_path, out_dir, args.public)
++                try:
++                    index = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
++                    confirmation = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
++                except (OSError, ValueError) as exc:
++                    print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
++                    return 2
++                if confirmation != index:
++                    print(
++                        "discovery-buddy: ERROR: DISCOVERY_SOURCE_CHANGED: workspace evidence changed between consecutive scans; retry from fresh source state",
++                        file=sys.stderr,
++                    )
++                    return 2
++                # Publish the second observation. Equality means it is byte-for-byte equivalent to
++                # the first deterministic snapshot while keeping the published object nearest to
++                # the final source observation.
++                index = confirmation
++                json_text, md_text = _serialized(index)
++                try:
++                    _publish_pair(json_path, json_text, md_path, md_text)
++                except OSError as exc:
++                    print(f"discovery-buddy: ERROR: output publish failed: {exc.__class__.__name__}", file=sys.stderr)
++                    return 2
++        except OutputWriterBusy:
++            print(
++                f"discovery-buddy: ERROR: DISCOVERY_OUTPUT_BUSY: another scan/recover owns {json_path.name}",
++                file=sys.stderr,
++            )
++            return 2
++        except OSError as exc:
++            print(f"discovery-buddy: ERROR: output coordination failed: {exc}", file=sys.stderr)
++            return 2
+         print(f"discovery-buddy: wrote {json_path} and {md_path} ({index['summary']['repositories']} repos, digest {index['content_sha256']})")
+         return 0
+ 
++    if journal_path.exists() or journal_path.is_symlink():
++        return _pending_transaction_error(journal_path, out_dir, args.public)
++
++    try:
++        index = scan_workspace(args.root, max_depth=args.max_depth, public=args.public)
++    except (OSError, ValueError) as exc:
++        print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
++        return 2
++    json_text, md_text = _serialized(index)
++
+     mismatches = []
+     for path, expected in ((json_path, json_text), (md_path, md_text)):
+         actual = path.read_text("utf-8") if path.is_file() else None
+@@ -56,4 +420,4 @@ def main(argv: list[str] | None = None) -> int:
+         print("discovery-buddy: STALE: " + ", ".join(mismatches), file=sys.stderr)
+         return 1
+     print(f"discovery-buddy: PASS ({index['summary']['repositories']} repos, digest {index['content_sha256']})")
+-    return 0
++    return 0
+\ No newline at end of file
+diff --git a/discovery_buddy/output_lock.py b/discovery_buddy/output_lock.py
+new file mode 100644
+index 0000000..dfcc025
+--- /dev/null
++++ b/discovery_buddy/output_lock.py
+@@ -0,0 +1,89 @@
++from __future__ import annotations
++
++from contextlib import contextmanager
++import errno
++import os
++from pathlib import Path
++import stat as stat_module
++from typing import BinaryIO, Iterator
++
++
++class OutputWriterBusy(OSError):
++    """Another local process currently owns publication for this output pair."""
++
++
++def lock_path_for(json_path: Path) -> Path:
++    return json_path.parent / f".{json_path.stem}.writer.lock"
++
++
++def _open_lock_file(lock_path: Path) -> BinaryIO:
++    if lock_path.is_symlink():
++        raise OSError("refusing symlinked discovery writer lock")
++
++    flags = os.O_RDWR | os.O_CREAT
++    if hasattr(os, "O_CLOEXEC"):
++        flags |= os.O_CLOEXEC
++    if hasattr(os, "O_NOFOLLOW"):
++        flags |= os.O_NOFOLLOW
++
++    fd = os.open(lock_path, flags, 0o600)
++    try:
++        info = os.fstat(fd)
++        if not stat_module.S_ISREG(info.st_mode):
++            raise OSError("discovery writer lock is not a regular file")
++        # Windows byte-range locking requires at least one byte. Keeping one fixed byte also
++        # makes the persistent lock inode intentionally content-free coordination state.
++        if info.st_size == 0:
++            os.write(fd, b"\0")
++        os.lseek(fd, 0, os.SEEK_SET)
++        return os.fdopen(fd, "r+b", buffering=0)
++    except BaseException:
++        os.close(fd)
++        raise
++
++
++def _acquire_nonblocking(handle: BinaryIO) -> None:
++    if os.name == "nt":
++        import msvcrt
++
++        handle.seek(0)
++        try:
++            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
++        except OSError as exc:
++            if exc.errno in {errno.EACCES, errno.EAGAIN}:
++                raise OutputWriterBusy("discovery output pair already has an active writer") from exc
++            raise
++        return
++
++    import fcntl
++
++    try:
++        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
++    except BlockingIOError as exc:
++        raise OutputWriterBusy("discovery output pair already has an active writer") from exc
++    except OSError as exc:
++        if exc.errno in {errno.EACCES, errno.EAGAIN}:
++            raise OutputWriterBusy("discovery output pair already has an active writer") from exc
++        raise
++
++
++@contextmanager
++def output_writer_lock(json_path: Path) -> Iterator[None]:
++    """Hold single-writer ownership for one local/public discovery output pair.
++
++    The lock is advisory and host-local. The file itself may persist, but ownership belongs to
++    the open descriptor and is released by the operating system when that descriptor closes or
++    the process exits. It carries no discovery data and grants no authority beyond serializing
++    this process-level publication/recovery boundary.
++    """
++
++    lock_path = lock_path_for(json_path)
++    handle = _open_lock_file(lock_path)
++    try:
++        _acquire_nonblocking(handle)
++        yield
++    finally:
++        # Closing the descriptor releases flock/msvcrt ownership, including normal exceptions.
++        # Abrupt process death also closes descriptors at the OS boundary, avoiding stale-owner
++        # metadata that would need to be guessed or manually cleared.
++        handle.close()
+diff --git a/discovery_buddy/scanner.py b/discovery_buddy/scanner.py
+index 10f5752..6d69c9e 100644
+--- a/discovery_buddy/scanner.py
++++ b/discovery_buddy/scanner.py
+@@ -4,6 +4,7 @@ import hashlib
+ import json
+ import os
+ from pathlib import Path
++import stat
+ from typing import Any, Iterable
+ 
+ SCHEMA_VERSION = "axm.discovery-index/v0.1"
+@@ -22,6 +23,8 @@ DEFAULT_EXCLUDES = frozenset({
+ })
+ MAX_JSON_BYTES = 2 * 1024 * 1024
+ MAX_JSONL_BYTES = 4 * 1024 * 1024
++MAX_GIT_TEXT_BYTES = 8 * 1024 * 1024
++READ_CHUNK_BYTES = 64 * 1024
+ 
+ 
+ def _sha256_bytes(data: bytes) -> str:
+@@ -32,18 +35,76 @@ def _canonical_json(value: Any) -> str:
+     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+ 
+ 
+-def _read_bytes(path: Path, max_bytes: int) -> tuple[bytes | None, str | None]:
++def _inside(path: Path, root: Path) -> bool:
+     try:
+-        size = path.stat().st_size
+-        if size > max_bytes:
+-            return None, f"too_large:{size}>{max_bytes}"
+-        return path.read_bytes(), None
++        path.relative_to(root)
++        return True
++    except ValueError:
++        return False
++
++
++def _file_identity(info: os.stat_result) -> tuple[int, int]:
++    return info.st_dev, info.st_ino
++
++
++def _read_bytes(path: Path, max_bytes: int, allowed_root: Path) -> tuple[bytes | None, str | None]:
++    """Read one regular source file without following it outside the admitted root."""
++    try:
++        root = allowed_root.resolve(strict=True)
++        admitted = os.lstat(path)
++        if not stat.S_ISREG(admitted.st_mode):
++            return None, "unsafe_source_type"
++        if admitted.st_size > max_bytes:
++            return None, f"too_large:{admitted.st_size}>{max_bytes}"
++
++        resolved = path.resolve(strict=True)
++        if not _inside(resolved, root):
++            return None, "source_outside_root"
++
++        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
++        descriptor = os.open(resolved, flags)
++        try:
++            opened = os.fstat(descriptor)
++            if not stat.S_ISREG(opened.st_mode):
++                return None, "unsafe_source_type"
++            if _file_identity(opened) != _file_identity(admitted):
++                return None, "source_changed_before_read"
++            if opened.st_size > max_bytes:
++                return None, f"too_large:{opened.st_size}>{max_bytes}"
++
++            chunks: list[bytes] = []
++            total = 0
++            while total <= max_bytes:
++                chunk = os.read(descriptor, min(READ_CHUNK_BYTES, max_bytes + 1 - total))
++                if not chunk:
++                    break
++                chunks.append(chunk)
++                total += len(chunk)
++            if total > max_bytes:
++                return None, f"too_large:>{max_bytes}"
++
++            finished = os.fstat(descriptor)
++            if (
++                _file_identity(finished) != _file_identity(opened)
++                or finished.st_size != opened.st_size
++                or finished.st_mtime_ns != opened.st_mtime_ns
++                or finished.st_ctime_ns != opened.st_ctime_ns
++                or total != finished.st_size
++            ):
++                return None, "source_changed_during_read"
++            return b"".join(chunks), None
++        finally:
++            os.close(descriptor)
+     except OSError as exc:
+         return None, f"read_error:{exc.__class__.__name__}"
+ 
+ 
+-def _read_json(path: Path, max_bytes: int = MAX_JSON_BYTES) -> tuple[Any | None, str | None, str | None]:
+-    raw, error = _read_bytes(path, max_bytes)
++def _read_json(
++    path: Path,
++    allowed_root: Path,
++    max_bytes: int = MAX_JSON_BYTES,
++) -> tuple[Any | None, str | None, str | None]:
++    raw, error = _read_bytes(path, max_bytes, allowed_root)
+     if raw is None:
+         return None, error, None
+     digest = _sha256_bytes(raw)
+@@ -53,62 +114,92 @@ def _read_json(path: Path, max_bytes: int = MAX_JSON_BYTES) -> tuple[Any | None,
+         return None, f"invalid_json:{exc.__class__.__name__}", digest
+ 
+ 
+-def _git_dir(repo_root: Path) -> Path | None:
++def _git_dir(repo_root: Path, scan_root: Path) -> tuple[Path | None, str | None]:
+     marker = repo_root / ".git"
+-    if marker.is_dir():
+-        return marker
+-    if marker.is_file():
++    if not (marker.exists() or marker.is_symlink()):
++        return None, None
++    try:
++        resolved_marker = marker.resolve(strict=True)
++    except OSError:
++        return None, "git_dir_unreadable"
++    scan_root = scan_root.resolve()
++    if not _inside(resolved_marker, scan_root):
++        return None, "git_dir_outside_scan_root"
++    if resolved_marker.is_dir():
++        return resolved_marker, None
++    if resolved_marker.is_file():
++        raw, read_error = _read_bytes(resolved_marker, MAX_GIT_TEXT_BYTES, scan_root)
++        if raw is None:
++            return None, "git_dir_unreadable"
+         try:
+-            text = marker.read_text("utf-8").strip()
+-        except OSError:
+-            return None
++            text = raw.decode("utf-8").strip()
++        except UnicodeDecodeError:
++            return None, "git_dir_unreadable"
+         prefix = "gitdir:"
+         if text.lower().startswith(prefix):
+             target = text[len(prefix):].strip()
+             candidate = Path(target)
+             if not candidate.is_absolute():
+                 candidate = (repo_root / candidate).resolve()
+-            return candidate
+-    return None
++            else:
++                candidate = candidate.resolve()
++            if not _inside(candidate, scan_root):
++                return None, "git_dir_outside_scan_root"
++            if not candidate.is_dir():
++                return None, "git_dir_unreadable"
++            return candidate, None
++    return None, "git_dir_unreadable"
++
++
++def _read_git_text(path: Path, git_dir: Path, *, errors: str = "strict") -> str | None:
++    raw, error = _read_bytes(path, MAX_GIT_TEXT_BYTES, git_dir)
++    if raw is None or error is not None:
++        return None
++    try:
++        return raw.decode("ascii", errors=errors)
++    except UnicodeDecodeError:
++        return None
+ 
+ 
+ def _resolve_ref(git_dir: Path, ref: str) -> str | None:
+     loose = git_dir / ref
+-    if loose.is_file():
+-        try:
+-            value = loose.read_text("ascii").strip()
+-        except OSError:
+-            return None
+-        return value or None
++    if loose.exists() or loose.is_symlink():
++        value = _read_git_text(loose, git_dir)
++        if value is not None:
++            value = value.strip()
++            return value or None
+     packed = git_dir / "packed-refs"
+-    if packed.is_file():
+-        try:
+-            for line in packed.read_text("ascii", errors="replace").splitlines():
+-                if not line or line.startswith(('#', '^')):
++    if packed.exists() or packed.is_symlink():
++        text = _read_git_text(packed, git_dir, errors="replace")
++        if text is not None:
++            for line in text.splitlines():
++                if not line or line.startswith(("#", "^")):
+                     continue
+                 sha, _, name = line.partition(" ")
+                 if name == ref:
+                     return sha
+-        except OSError:
+-            return None
+     return None
+ 
+ 
+-def read_git_identity(repo_root: Path) -> dict[str, Any]:
+-    git_dir = _git_dir(repo_root)
++def read_git_identity(repo_root: Path, scan_root: Path) -> dict[str, Any]:
++    marker = repo_root / ".git"
++    present = marker.exists() or marker.is_symlink()
++    git_dir, error = _git_dir(repo_root, scan_root)
+     result: dict[str, Any] = {
+-        "present": git_dir is not None,
++        "present": present,
+         "branch": None,
+         "head": None,
+         "detached": False,
+     }
++    if error:
++        result["error"] = error
+     if git_dir is None:
+         return result
+-    try:
+-        head_text = (git_dir / "HEAD").read_text("ascii").strip()
+-    except OSError:
++    head_text = _read_git_text(git_dir / "HEAD", git_dir)
++    if head_text is None:
+         result["error"] = "head_unreadable"
+         return result
++    head_text = head_text.strip()
+     if head_text.startswith("ref: "):
+         ref = head_text[5:].strip()
+         result["branch"] = ref.removeprefix("refs/heads/")
+@@ -121,9 +212,9 @@ def read_git_identity(repo_root: Path) -> dict[str, Any]:
+ 
+ def _safe_text_digest(repo_root: Path, relative: str) -> dict[str, Any]:
+     path = repo_root / relative
+-    if not path.is_file():
++    if not (path.exists() or path.is_symlink()):
+         return {"present": False, "sha256": None}
+-    raw, error = _read_bytes(path, MAX_JSON_BYTES)
++    raw, error = _read_bytes(path, MAX_JSON_BYTES, repo_root)
+     return {
+         "present": True,
+         "sha256": _sha256_bytes(raw) if raw is not None else None,
+@@ -133,9 +224,9 @@ def _safe_text_digest(repo_root: Path, relative: str) -> dict[str, Any]:
+ 
+ def read_beacon(repo_root: Path) -> dict[str, Any]:
+     path = repo_root / ".axm" / "beacon.json"
+-    if not path.is_file():
++    if not (path.exists() or path.is_symlink()):
+         return {"present": False}
+-    data, error, digest = _read_json(path)
++    data, error, digest = _read_json(path, repo_root)
+     result: dict[str, Any] = {"present": True, "sha256": digest}
+     if error:
+         result["error"] = error
+@@ -157,9 +248,9 @@ def read_beacon(repo_root: Path) -> dict[str, Any]:
+ 
+ def read_public_marker(repo_root: Path) -> dict[str, Any]:
+     path = repo_root / ".axm" / "discovery-public.json"
+-    if not path.is_file():
++    if not (path.exists() or path.is_symlink()):
+         return {"present": False, "eligible": False}
+-    data, error, digest = _read_json(path)
++    data, error, digest = _read_json(path, repo_root)
+     result: dict[str, Any] = {"present": True, "eligible": False, "sha256": digest}
+     if error:
+         result["error"] = error
+@@ -181,16 +272,18 @@ def read_public_marker(repo_root: Path) -> dict[str, Any]:
+ 
+ 
+ def _registry_candidates(repo_root: Path) -> Iterable[Path]:
++    registry = repo_root / "registry"
++    if registry.is_symlink():
++        return
+     preferred = [
+-        repo_root / "registry" / "capabilities.jsonl",
+-        repo_root / "registry" / "capabilities.v0.1.jsonl",
++        registry / "capabilities.jsonl",
++        registry / "capabilities.v0.1.jsonl",
+     ]
+     seen: set[Path] = set()
+     for path in preferred:
+-        if path.is_file() and path not in seen:
++        if (path.exists() or path.is_symlink()) and path not in seen:
+             seen.add(path)
+             yield path
+-    registry = repo_root / "registry"
+     if registry.is_dir():
+         for path in sorted(registry.glob("*capabilit*.jsonl")):
+             if path not in seen:
+@@ -201,8 +294,11 @@ def _registry_candidates(repo_root: Path) -> Iterable[Path]:
+ def read_capabilities(repo_root: Path) -> dict[str, Any]:
+     rows: list[dict[str, Any]] = []
+     sources: list[dict[str, Any]] = []
++    registry = repo_root / "registry"
++    if registry.is_symlink():
++        return {"sources": [{"path": "registry", "error": "unsafe_source_type"}], "records": []}
+     for path in _registry_candidates(repo_root):
+-        raw, error = _read_bytes(path, MAX_JSONL_BYTES)
++        raw, error = _read_bytes(path, MAX_JSONL_BYTES, repo_root)
+         relative = path.relative_to(repo_root).as_posix()
+         if raw is None:
+             sources.append({"path": relative, "error": error})
+@@ -291,7 +387,7 @@ def scan_workspace(root: Path | str, max_depth: int = 4, public: bool = False) -
+             repo_record = {
+                 "path": rel,
+                 "name": repo_root.name,
+-                "git": read_git_identity(repo_root),
++                "git": read_git_identity(repo_root, root_path),
+                 "readme": _safe_text_digest(repo_root, "README.md"),
+                 "agents": _safe_text_digest(repo_root, "AGENTS.md"),
+                 "beacon": beacon,
+diff --git a/docs/DISCOVERY_INDEX.md b/docs/DISCOVERY_INDEX.md
+index 70778d1..1f5d275 100644
+--- a/docs/DISCOVERY_INDEX.md
++++ b/docs/DISCOVERY_INDEX.md
+@@ -36,6 +36,7 @@ Local mode:
+ - may report workspace-relative repository paths;
+ - never writes the absolute scan root into the index;
+ - never exports arbitrary source contents;
++- refuses to read Git identity through a `.git` directory or pointer whose resolved target leaves the selected scan root;
+ - hashes only bounded named evidence files (`README.md`, `AGENTS.md`) and parsed discovery metadata.
+ 
+ Public mode is fail-closed. A repository is omitted unless `.axm/discovery-public.json` explicitly says `public: true` under schema `axm.discovery-public/v1`. Public output strips local paths and Git work-state fields.
+diff --git a/tests/test_output_durability.py b/tests/test_output_durability.py
+new file mode 100644
+index 0000000..fdf00d3
+--- /dev/null
++++ b/tests/test_output_durability.py
+@@ -0,0 +1,177 @@
++from pathlib import Path
++import json
++import subprocess
++import sys
++import tempfile
++import unittest
++from unittest import mock
++
++import discovery_buddy.cli as cli_module
++from discovery_buddy.cli import main as cli_main
++
++
++def make_repo(root: Path) -> Path:
++    repo = root / "repo"
++    git = repo / ".git"
++    (git / "refs" / "heads").mkdir(parents=True)
++    (git / "HEAD").write_text("ref: refs/heads/main\n", "ascii")
++    (git / "refs" / "heads" / "main").write_text("a" * 40 + "\n", "ascii")
++    (repo / "README.md").write_text("# initial\n", "utf-8")
++    return repo
++
++
++class OutputDurabilityTests(unittest.TestCase):
++    def _last_good_fixture(self, tmp: str) -> tuple[Path, Path, Path, bytes, bytes]:
++        root = Path(tmp) / "workspace"
++        root.mkdir()
++        repo = make_repo(root)
++        out = Path(tmp) / "out"
++        self.assertEqual(cli_main(["scan", str(root), "--output-dir", str(out)]), 0)
++        json_path = out / "local-discovery.json"
++        md_path = out / "local-discovery.md"
++        return root, repo, out, json_path.read_bytes(), md_path.read_bytes()
++
++    def _crash_scan_after_target(
++        self,
++        root: Path,
++        out: Path,
++        target_name: str,
++        exit_code: int,
++    ) -> subprocess.CompletedProcess:
++        child = """
++import os
++from pathlib import Path
++import sys
++import discovery_buddy.cli as cli
++root = Path(sys.argv[1])
++out = Path(sys.argv[2])
++target = out / sys.argv[3]
++exit_code = int(sys.argv[4])
++real_replace = cli.os.replace
++def crash_after_target(source, destination):
++    real_replace(source, destination)
++    if Path(destination) == target:
++        os._exit(exit_code)
++cli.os.replace = crash_after_target
++cli.main(["scan", str(root), "--output-dir", str(out)])
++raise SystemExit(99)
++"""
++        return subprocess.run(
++            [sys.executable, "-c", child, str(root), str(out), target_name, str(exit_code)],
++            check=False,
++        )
++
++    def test_second_output_write_failure_preserves_last_good_pair(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root, repo, out, baseline_json, baseline_md = self._last_good_fixture(tmp)
++            json_path = out / "local-discovery.json"
++            md_path = out / "local-discovery.md"
++
++            (repo / "README.md").write_text("# changed after last-good snapshot\n", "utf-8")
++            real_write_text = Path.write_text
++
++            def fail_markdown_write(path_self, data, *args, **kwargs):
++                if isinstance(data, str) and data.startswith("# AXM Discovery Map"):
++                    raise OSError("simulated second-output write failure")
++                return real_write_text(path_self, data, *args, **kwargs)
++
++            with mock.patch.object(Path, "write_text", autospec=True, side_effect=fail_markdown_write):
++                result = cli_main(["scan", str(root), "--output-dir", str(out)])
++
++            self.assertEqual(result, 2)
++            self.assertEqual(json_path.read_bytes(), baseline_json)
++            self.assertEqual(md_path.read_bytes(), baseline_md)
++            self.assertEqual(list(out.glob(".*.tmp")), [])
++
++    def test_second_publish_replace_failure_rolls_back_first_output(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root, repo, out, baseline_json, baseline_md = self._last_good_fixture(tmp)
++            json_path = out / "local-discovery.json"
++            md_path = out / "local-discovery.md"
++
++            (repo / "README.md").write_text("# changed before replace failure\n", "utf-8")
++            real_replace = cli_module.os.replace
++
++            def fail_markdown_replace(source, destination):
++                if Path(destination) == md_path:
++                    raise OSError("simulated second-output replace failure")
++                return real_replace(source, destination)
++
++            with mock.patch.object(cli_module.os, "replace", side_effect=fail_markdown_replace):
++                result = cli_main(["scan", str(root), "--output-dir", str(out)])
++
++            self.assertEqual(result, 2)
++            self.assertEqual(json_path.read_bytes(), baseline_json)
++            self.assertEqual(md_path.read_bytes(), baseline_md)
++            self.assertEqual(list(out.glob(".*.tmp")), [])
++
++    def test_process_crash_after_first_publish_is_explicitly_recoverable(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root, repo, out, baseline_json, baseline_md = self._last_good_fixture(tmp)
++            json_path = out / "local-discovery.json"
++            md_path = out / "local-discovery.md"
++            journal = out / ".local-discovery.transaction.json"
++
++            (repo / "README.md").write_text("# changed before process crash\n", "utf-8")
++            crashed = self._crash_scan_after_target(root, out, json_path.name, 91)
++
++            self.assertEqual(crashed.returncode, 91)
++            self.assertTrue(journal.is_file())
++            self.assertNotEqual(json_path.read_bytes(), baseline_json)
++            self.assertEqual(md_path.read_bytes(), baseline_md)
++            self.assertEqual(cli_main(["verify", str(root), "--output-dir", str(out)]), 2)
++            self.assertEqual(cli_main(["recover", "--output-dir", str(out)]), 0)
++            self.assertEqual(json_path.read_bytes(), baseline_json)
++            self.assertEqual(md_path.read_bytes(), baseline_md)
++            self.assertFalse(journal.exists())
++            self.assertEqual(list(out.glob(".*.tmp")), [])
++
++    def test_process_crash_after_complete_pair_finalizes_new_generation(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root, repo, out, baseline_json, baseline_md = self._last_good_fixture(tmp)
++            json_path = out / "local-discovery.json"
++            md_path = out / "local-discovery.md"
++            journal = out / ".local-discovery.transaction.json"
++
++            (repo / "README.md").write_text("# changed before complete-pair crash\n", "utf-8")
++            crashed = self._crash_scan_after_target(root, out, md_path.name, 92)
++
++            self.assertEqual(crashed.returncode, 92)
++            self.assertTrue(journal.is_file())
++            new_json = json_path.read_bytes()
++            new_md = md_path.read_bytes()
++            self.assertNotEqual(new_json, baseline_json)
++            self.assertNotEqual(new_md, baseline_md)
++
++            self.assertEqual(cli_main(["recover", "--output-dir", str(out)]), 0)
++            self.assertEqual(json_path.read_bytes(), new_json)
++            self.assertEqual(md_path.read_bytes(), new_md)
++            self.assertFalse(journal.exists())
++            self.assertEqual(list(out.glob(".*.tmp")), [])
++            self.assertEqual(cli_main(["verify", str(root), "--output-dir", str(out)]), 0)
++
++    def test_corrupt_rollback_backup_fails_closed_without_rewriting_pair(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root, repo, out, _baseline_json, _baseline_md = self._last_good_fixture(tmp)
++            json_path = out / "local-discovery.json"
++            md_path = out / "local-discovery.md"
++            journal = out / ".local-discovery.transaction.json"
++
++            (repo / "README.md").write_text("# changed before corrupt-backup crash\n", "utf-8")
++            crashed = self._crash_scan_after_target(root, out, json_path.name, 93)
++            self.assertEqual(crashed.returncode, 93)
++
++            transaction = json.loads(journal.read_text("utf-8"))
++            json_backup = out / transaction["targets"][0]["backup"]
++            json_backup.write_bytes(b"corrupted-backup\n")
++            split_json = json_path.read_bytes()
++            split_md = md_path.read_bytes()
++
++            self.assertEqual(cli_main(["recover", "--output-dir", str(out)]), 2)
++            self.assertEqual(json_path.read_bytes(), split_json)
++            self.assertEqual(md_path.read_bytes(), split_md)
++            self.assertTrue(journal.is_file())
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_output_single_writer.py b/tests/test_output_single_writer.py
+new file mode 100644
+index 0000000..46016f5
+--- /dev/null
++++ b/tests/test_output_single_writer.py
+@@ -0,0 +1,183 @@
++from __future__ import annotations
++
++from contextlib import redirect_stderr
++import io
++from pathlib import Path
++import os
++import subprocess
++import sys
++import tempfile
++import time
++import unittest
++
++from discovery_buddy.cli import main as cli_main
++
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
++LOCK_NAME = ".local-discovery.writer.lock"
++
++
++def make_repo(root: Path) -> Path:
++    repo = root / "repo"
++    git = repo / ".git"
++    (git / "refs" / "heads").mkdir(parents=True)
++    (git / "HEAD").write_text("ref: refs/heads/main\n", "ascii")
++    (git / "refs" / "heads" / "main").write_text("a" * 40 + "\n", "ascii")
++    (repo / "README.md").write_text("# initial\n", "utf-8")
++    return repo
++
++
++def start_writer_paused_before_journal(root: Path, out: Path, ready: Path, release: Path) -> subprocess.Popen[str]:
++    child = r'''
++from pathlib import Path
++import sys
++import time
++import discovery_buddy.cli as cli
++
++root = Path(sys.argv[1])
++out = Path(sys.argv[2])
++ready = Path(sys.argv[3])
++release = Path(sys.argv[4])
++real_write_transaction = cli._write_transaction
++
++def pause_before_journal(journal_path, targets):
++    ready.write_text("ready\n", "utf-8")
++    deadline = time.monotonic() + 20
++    while not release.exists():
++        if time.monotonic() >= deadline:
++            raise RuntimeError("timed out waiting for release")
++        time.sleep(0.01)
++    return real_write_transaction(journal_path, targets)
++
++cli._write_transaction = pause_before_journal
++raise SystemExit(cli.main(["scan", str(root), "--output-dir", str(out)]))
++'''
++    env = os.environ.copy()
++    env["PYTHONPATH"] = str(REPO_ROOT)
++    return subprocess.Popen(
++        [sys.executable, "-c", child, str(root), str(out), str(ready), str(release)],
++        cwd=REPO_ROOT,
++        env=env,
++        stdout=subprocess.PIPE,
++        stderr=subprocess.PIPE,
++        text=True,
++    )
++
++
++def wait_ready(process: subprocess.Popen[str], ready: Path) -> None:
++    deadline = time.monotonic() + 10
++    while time.monotonic() < deadline:
++        if ready.exists():
++            return
++        if process.poll() is not None:
++            stdout, stderr = process.communicate()
++            raise AssertionError(f"writer exited before ready: {process.returncode}; stdout={stdout!r}; stderr={stderr!r}")
++        time.sleep(0.01)
++    process.kill()
++    stdout, stderr = process.communicate()
++    raise AssertionError(f"writer did not reach pre-journal barrier; stdout={stdout!r}; stderr={stderr!r}")
++
++
++class OutputSingleWriterTests(unittest.TestCase):
++    def test_second_scan_cannot_overtake_writer_before_journal(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp) / "workspace"
++            root.mkdir()
++            repo = make_repo(root)
++            out = Path(tmp) / "out"
++            self.assertEqual(cli_main(["scan", str(root), "--output-dir", str(out)]), 0)
++
++            baseline_json = (out / "local-discovery.json").read_bytes()
++            baseline_md = (out / "local-discovery.md").read_bytes()
++            (repo / "README.md").write_text("# first writer snapshot\n", "utf-8")
++
++            ready = Path(tmp) / "writer-ready"
++            release = Path(tmp) / "writer-release"
++            first = start_writer_paused_before_journal(root, out, ready, release)
++            try:
++                wait_ready(first, ready)
++                self.assertFalse((out / ".local-discovery.transaction.json").exists())
++
++                # The first scanner has already built its older in-memory snapshot but has not
++                # journaled or published it. A second scanner now observes newer workspace state.
++                (repo / "README.md").write_text("# newer workspace state\n", "utf-8")
++                stderr = io.StringIO()
++                with redirect_stderr(stderr):
++                    second_result = cli_main(["scan", str(root), "--output-dir", str(out)])
++
++                # Let the original writer finish regardless of the assertion result so the test
++                # never leaves a child behind. Without a single-writer gate, the second scan can
++                # publish first and this older first scan can then overwrite it.
++                release.write_text("release\n", "utf-8")
++                first_stdout, first_stderr = first.communicate(timeout=10)
++                self.assertEqual(first.returncode, 0, msg=f"stdout={first_stdout!r}; stderr={first_stderr!r}")
++
++                self.assertEqual(
++                    second_result,
++                    2,
++                    msg="a competing scan entered publication while another scan already owned an older snapshot",
++                )
++                self.assertIn("DISCOVERY_OUTPUT_BUSY", stderr.getvalue())
++
++                # The older snapshot is now a legitimate completed generation. A new scan after
++                # ownership is released must be able to publish the current workspace state.
++                self.assertEqual(cli_main(["verify", str(root), "--output-dir", str(out)]), 1)
++                self.assertEqual(cli_main(["scan", str(root), "--output-dir", str(out)]), 0)
++                self.assertEqual(cli_main(["verify", str(root), "--output-dir", str(out)]), 0)
++                self.assertNotEqual((out / "local-discovery.json").read_bytes(), baseline_json)
++                self.assertNotEqual((out / "local-discovery.md").read_bytes(), baseline_md)
++            finally:
++                release.touch(exist_ok=True)
++                if first.poll() is None:
++                    first.kill()
++                    first.communicate()
++
++    def test_process_death_releases_writer_ownership_without_manual_cleanup(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp) / "workspace"
++            root.mkdir()
++            repo = make_repo(root)
++            out = Path(tmp) / "out"
++            self.assertEqual(cli_main(["scan", str(root), "--output-dir", str(out)]), 0)
++            (repo / "README.md").write_text("# changed before killed writer\n", "utf-8")
++
++            ready = Path(tmp) / "writer-ready"
++            release = Path(tmp) / "writer-release"
++            first = start_writer_paused_before_journal(root, out, ready, release)
++            wait_ready(first, ready)
++            first.kill()
++            first.communicate(timeout=10)
++
++            self.assertFalse((out / ".local-discovery.transaction.json").exists())
++            self.assertEqual(cli_main(["scan", str(root), "--output-dir", str(out)]), 0)
++            self.assertEqual(cli_main(["verify", str(root), "--output-dir", str(out)]), 0)
++
++    def test_symlinked_writer_lock_is_rejected_without_following_it(self):
++        if not hasattr(os, "symlink"):
++            self.skipTest("symlinks unavailable")
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp) / "workspace"
++            root.mkdir()
++            make_repo(root)
++            out = Path(tmp) / "out"
++            out.mkdir()
++            outside = Path(tmp) / "outside-lock-target"
++            outside.write_text("do-not-touch\n", "utf-8")
++            lock = out / LOCK_NAME
++            try:
++                lock.symlink_to(outside)
++            except OSError as exc:
++                self.skipTest(f"symlink creation unavailable: {exc}")
++
++            stderr = io.StringIO()
++            with redirect_stderr(stderr):
++                result = cli_main(["scan", str(root), "--output-dir", str(out)])
++
++            self.assertEqual(result, 2)
++            self.assertEqual(outside.read_text("utf-8"), "do-not-touch\n")
++            self.assertFalse((out / "local-discovery.json").exists())
++            self.assertIn("output coordination failed", stderr.getvalue())
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_scan_source_stability.py b/tests/test_scan_source_stability.py
+new file mode 100644
+index 0000000..cd6384c
+--- /dev/null
++++ b/tests/test_scan_source_stability.py
+@@ -0,0 +1,71 @@
++from __future__ import annotations
++
++from contextlib import redirect_stderr
++import io
++from pathlib import Path
++import tempfile
++import unittest
++from unittest.mock import patch
++
++import discovery_buddy.cli as cli
++from discovery_buddy.scanner import scan_workspace as real_scan_workspace
++
++
++def make_repo(root: Path) -> Path:
++    repo = root / "repo"
++    git = repo / ".git"
++    (git / "refs" / "heads").mkdir(parents=True)
++    (git / "HEAD").write_text("ref: refs/heads/main\n", "ascii")
++    (git / "refs" / "heads" / "main").write_text("a" * 40 + "\n", "ascii")
++    (repo / "README.md").write_text("# baseline\n", "utf-8")
++    return repo
++
++
++class ScanSourceStabilityTests(unittest.TestCase):
++    def test_scan_refuses_to_publish_snapshot_when_source_changes_after_observation(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp) / "workspace"
++            root.mkdir()
++            repo = make_repo(root)
++            out = Path(tmp) / "out"
++
++            self.assertEqual(cli.main(["scan", str(root), "--output-dir", str(out)]), 0)
++            baseline_json = (out / "local-discovery.json").read_bytes()
++            baseline_md = (out / "local-discovery.md").read_bytes()
++
++            (repo / "README.md").write_text("# observed by first pass\n", "utf-8")
++            calls = 0
++
++            def mutate_after_first_scan(*args, **kwargs):
++                nonlocal calls
++                calls += 1
++                index = real_scan_workspace(*args, **kwargs)
++                if calls == 1:
++                    # Mutation happens after the scanner has built a complete snapshot but before
++                    # the CLI can serialize/publish it. A stable-source admission step must see it.
++                    (repo / "README.md").write_text("# changed before publication\n", "utf-8")
++                return index
++
++            stderr = io.StringIO()
++            with patch.object(cli, "scan_workspace", side_effect=mutate_after_first_scan):
++                with redirect_stderr(stderr):
++                    result = cli.main(["scan", str(root), "--output-dir", str(out)])
++
++            self.assertEqual(
++                result,
++                2,
++                msg="scan published evidence captured before a source mutation instead of holding",
++            )
++            self.assertGreaterEqual(calls, 2, msg="scan did not re-observe the source before publication")
++            self.assertIn("DISCOVERY_SOURCE_CHANGED", stderr.getvalue())
++            self.assertEqual((out / "local-discovery.json").read_bytes(), baseline_json)
++            self.assertEqual((out / "local-discovery.md").read_bytes(), baseline_md)
++            self.assertFalse((out / ".local-discovery.transaction.json").exists())
++
++            # The retained pair is still last-good evidence and therefore stale relative to the
++            # now-mutated workspace until a later clean scan is explicitly requested.
++            self.assertEqual(cli.main(["verify", str(root), "--output-dir", str(out)]), 1)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_scanner.py b/tests/test_scanner.py
+index 1a67d18..775ab5b 100644
+--- a/tests/test_scanner.py
++++ b/tests/test_scanner.py
+@@ -46,6 +46,44 @@ class ScannerTests(unittest.TestCase):
+             self.assertEqual(index["repositories"][0]["path"], ".")
+             self.assertEqual(index["repositories"][0]["git"]["head"], "c" * 40)
+ 
++    def test_git_pointer_cannot_read_identity_outside_scan_root(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            root = base / "workspace"
++            repo = root / "repo"
++            external_git = base / "external-git"
++            repo.mkdir(parents=True)
++            (external_git / "refs" / "heads").mkdir(parents=True)
++            (external_git / "HEAD").write_text("ref: refs/heads/private-branch\n", "ascii")
++            (external_git / "refs" / "heads" / "private-branch").write_text("d" * 40 + "\n", "ascii")
++            (repo / ".git").write_text(f"gitdir: {external_git}\n", "utf-8")
++
++            index = scan_workspace(root)
++            identity = index["repositories"][0]["git"]
++            self.assertTrue(identity["present"])
++            self.assertEqual(identity["error"], "git_dir_outside_scan_root")
++            self.assertIsNone(identity["branch"])
++            self.assertIsNone(identity["head"])
++            self.assertNotIn("private-branch", json.dumps(index))
++            self.assertNotIn("d" * 40, json.dumps(index))
++
++    def test_contained_git_pointer_remains_discoverable(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            repo = root / "worktree"
++            contained_git = root / "git-storage" / "worktrees" / "worktree"
++            repo.mkdir()
++            (contained_git / "refs" / "heads").mkdir(parents=True)
++            (contained_git / "HEAD").write_text("ref: refs/heads/contained\n", "ascii")
++            (contained_git / "refs" / "heads" / "contained").write_text("e" * 40 + "\n", "ascii")
++            (repo / ".git").write_text(f"gitdir: {contained_git}\n", "utf-8")
++
++            index = scan_workspace(root)
++            identity = index["repositories"][0]["git"]
++            self.assertEqual(identity["branch"], "contained")
++            self.assertEqual(identity["head"], "e" * 40)
++            self.assertNotIn("error", identity)
++
+     def test_capability_registry_and_beacon_are_discovered_without_file_contents(self):
+         with tempfile.TemporaryDirectory() as tmp:
+             root = Path(tmp)
+diff --git a/tests/test_source_file_admission.py b/tests/test_source_file_admission.py
+new file mode 100644
+index 0000000..fef67f8
+--- /dev/null
++++ b/tests/test_source_file_admission.py
+@@ -0,0 +1,130 @@
++import json
++import os
++from pathlib import Path
++import tempfile
++import unittest
++from unittest.mock import patch
++
++from discovery_buddy import scanner
++from discovery_buddy.scanner import scan_workspace
++
++
++def make_repo(root: Path, rel: str) -> Path:
++    repo = root / rel
++    git = repo / ".git"
++    (git / "refs" / "heads").mkdir(parents=True)
++    (git / "HEAD").write_text("ref: refs/heads/main\n", "ascii")
++    (git / "refs" / "heads" / "main").write_text("a" * 40 + "\n", "ascii")
++    (repo / "README.md").write_text(f"# {repo.name}\n", "utf-8")
++    return repo
++
++
++class SourceFileAdmissionTests(unittest.TestCase):
++    def test_public_marker_symlink_outside_scan_root_cannot_opt_repo_in(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            root = base / "workspace"
++            repo = make_repo(root, "candidate")
++            private = base / "private"
++            private.mkdir()
++            secret = "PRIVATE_EXTERNAL_MARKER_DO_NOT_EXPORT"
++            external_marker = private / "discovery-public.json"
++            external_marker.write_text(json.dumps({
++                "schema": "axm.discovery-public/v1",
++                "public": True,
++                "repo": "private/external",
++                "display_name": secret,
++            }), "utf-8")
++            (repo / ".axm").mkdir()
++            (repo / ".axm" / "discovery-public.json").symlink_to(external_marker)
++
++            index = scan_workspace(root, public=True)
++
++            self.assertEqual(index["summary"]["repositories"], 0)
++            self.assertNotIn(secret, json.dumps(index))
++            self.assertNotIn("private/external", json.dumps(index))
++
++    def test_symlinked_registry_directory_cannot_import_external_capabilities(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            root = base / "workspace"
++            repo = make_repo(root, "candidate")
++            external_registry = base / "private-registry"
++            external_registry.mkdir()
++            secret = "PRIVATE_EXTERNAL_CAPABILITY"
++            (external_registry / "capabilities.jsonl").write_text(
++                json.dumps({"id": secret, "providers": ["private-provider"]}) + "\n",
++                "utf-8",
++            )
++            (repo / "registry").symlink_to(external_registry, target_is_directory=True)
++
++            index = scan_workspace(root)
++
++            record = index["repositories"][0]
++            self.assertEqual(record["capabilities"]["records"], [])
++            self.assertNotIn(secret, json.dumps(index))
++            self.assertNotIn("private-provider", json.dumps(index))
++
++    def test_capability_file_symlink_cannot_import_external_bytes(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            root = base / "workspace"
++            repo = make_repo(root, "candidate")
++            (repo / "registry").mkdir()
++            secret = "PRIVATE_EXTERNAL_FILE_CAPABILITY"
++            external = base / "private-capabilities.jsonl"
++            external.write_text(json.dumps({"id": secret}) + "\n", "utf-8")
++            (repo / "registry" / "capabilities.jsonl").symlink_to(external)
++
++            index = scan_workspace(root)
++
++            capabilities = index["repositories"][0]["capabilities"]
++            self.assertEqual(capabilities["records"], [])
++            self.assertNotIn(secret, json.dumps(index))
++
++    def test_git_head_symlink_cannot_leak_identity_outside_scan_root(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            root = base / "workspace"
++            repo = make_repo(root, "candidate")
++            head = repo / ".git" / "HEAD"
++            head.unlink()
++            external = base / "private-head"
++            secret = "PRIVATE_EXTERNAL_BRANCH"
++            external.write_text(f"ref: refs/heads/{secret}\n", "ascii")
++            head.symlink_to(external)
++
++            index = scan_workspace(root)
++
++            identity = index["repositories"][0]["git"]
++            self.assertIsNone(identity["branch"])
++            self.assertIsNone(identity["head"])
++            self.assertNotIn(secret, json.dumps(index))
++
++    def test_file_replaced_after_admission_is_refused_before_read(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            source = root / "evidence.json"
++            source.write_bytes(b'{"safe":true}\n')
++            replacement = root / "replacement.json"
++            replacement.write_bytes(b'{"secret":"PRIVATE_REPLACEMENT"}\n')
++            real_open = os.open
++            swapped = False
++
++            def replace_before_open(path, flags, *args, **kwargs):
++                nonlocal swapped
++                if not swapped and Path(path) == source:
++                    os.replace(replacement, source)
++                    swapped = True
++                return real_open(path, flags, *args, **kwargs)
++
++            with patch.object(scanner.os, "open", side_effect=replace_before_open):
++                raw, error = scanner._read_bytes(source, 1024, root)
++
++            self.assertTrue(swapped)
++            self.assertIsNone(raw)
++            self.assertEqual(error, "source_changed_before_read")
++
++
++if __name__ == "__main__":
++    unittest.main()

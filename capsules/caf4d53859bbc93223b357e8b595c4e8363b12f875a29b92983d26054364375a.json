@@ -1,0 +1,52 @@
+{
+  "capsule_id": "caf4d53859bbc93223b357e8b595c4e8363b12f875a29b92983d26054364375a",
+  "evidence": {
+    "files": [
+      {
+        "additions": 13,
+        "binary": false,
+        "content_sha256": "647a1c8127377c128385e92b67a228dc9c5660c0921b4764baf689506df7111f",
+        "deletions": 0,
+        "path": "AGENTS.md",
+        "status": "M",
+        "symbols": [],
+        "topics": [
+          "Constitutional merge / CANON gate"
+        ]
+      }
+    ],
+    "patch_sha256": "cc5f8e57b9d6a0b24a42f7d8f98bba11c4e49fa6b4d2220fdd18ccb0d84189d6"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 1,
+    "kinds": [
+      "knowledge"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "agents",
+      "axm",
+      "canon",
+      "constitutional",
+      "discovery",
+      "four",
+      "gate",
+      "merge",
+      "record",
+      "root",
+      "standalone"
+    ]
+  },
+  "source": {
+    "base": "1712ab75bbcfbc9b3045921cc6083d38be2695dc",
+    "commit_subject": "Record four-root AXM merge gate",
+    "head": "951dff2fe8ecb89313c3e0ca4823ab1648d7dd29",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}

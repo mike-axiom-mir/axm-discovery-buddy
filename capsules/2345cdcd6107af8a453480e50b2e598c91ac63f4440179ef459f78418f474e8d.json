@@ -1,0 +1,241 @@
+{
+  "capsule_id": "2345cdcd6107af8a453480e50b2e598c91ac63f4440179ef459f78418f474e8d",
+  "evidence": {
+    "files": [
+      {
+        "additions": 30,
+        "binary": false,
+        "content_sha256": "344e7520c5cc83f1fe0596526b57fd7cbd2fef3e8e6160caac95ca4caaa74206",
+        "deletions": 0,
+        "path": ".axm/beacon.json",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 126,
+        "binary": false,
+        "content_sha256": "469cca20504ee1867479e141c6af1c06b724d05be9d58b461ba80d8bdb1a5803",
+        "deletions": 0,
+        "path": ".axm/beacon/beacon.py",
+        "status": "A",
+        "symbols": [
+          "cmd_publish",
+          "cmd_scan",
+          "cmd_verify",
+          "cmd_fetch",
+          "build_parser",
+          "main"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 471,
+        "binary": false,
+        "content_sha256": "2402a8b2405170fcefde0add8842e823eaf4b285b6ddafbe5a37483ed645d5f0",
+        "deletions": 0,
+        "path": ".axm/beacon/core.py",
+        "status": "A",
+        "symbols": [
+          "BeaconError",
+          "DiffFile",
+          "canonical_json",
+          "sha256_text",
+          "sha256_bytes",
+          "run_git",
+          "ensure_git_repo",
+          "resolve_ref",
+          "load_config",
+          "infer_repo_slug",
+          "_matches_any",
+          "path_allowed",
+          "parse_changed_lines",
+          "collect_diff_files",
+          "read_file_at_ref",
+          "intersects_changed",
+          "extract_symbols",
+          "extract_knowledge_topics",
+          "tokenize",
+          "classify_changes",
+          "build_capsule",
+          "capsule_summary",
+          "verify_capsule",
+          "publish"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 149,
+        "binary": false,
+        "content_sha256": "e62b52533aae3728fdad2c6555b6e9e3580812245b32bc2a5c6c70108edd3137",
+        "deletions": 0,
+        "path": ".axm/beacon/network.py",
+        "status": "A",
+        "symbols": [
+          "_request_json",
+          "discover_github_repos",
+          "fetch_peer_indexes",
+          "load_local_indexes",
+          "rank_candidates",
+          "scan",
+          "fetch_capsule"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 67,
+        "binary": false,
+        "content_sha256": "5daa22f17881095ca63636463f1e50e3b530b6ba68f021396528839780edd911",
+        "deletions": 0,
+        "path": ".github/workflows/axm-beacon-publish.yml",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 29,
+        "binary": false,
+        "content_sha256": "6e93fb6d9d192c8214e2cc07633c0b0930327529d107d3e2ceae65dd23339233",
+        "deletions": 0,
+        "path": ".github/workflows/axm-beacon-test.yml",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 14,
+        "binary": false,
+        "content_sha256": "760812218c2ab811bec7a30e4965bf2273589a8431920afae7b17a03743a0912",
+        "deletions": 0,
+        "path": "AGENTS.md",
+        "status": "M",
+        "symbols": [],
+        "topics": [
+          "Cross-repository beacon principle"
+        ]
+      },
+      {
+        "additions": 85,
+        "binary": false,
+        "content_sha256": "a65b58c050bd81f30f22459f14a1beea0e91051ceb2f3046f16cabd9bdf582f6",
+        "deletions": 0,
+        "path": "docs/AXM_BEACON_PROTOCOL.md",
+        "status": "A",
+        "symbols": [],
+        "topics": [
+          "AXM Organ Beacon Protocol v0.1",
+          "Purpose",
+          "Core boundary",
+          "Why the feed is a separate branch",
+          "Capsule identity",
+          "Attention score",
+          "Commands",
+          "Growth path"
+        ]
+      },
+      {
+        "additions": 141,
+        "binary": false,
+        "content_sha256": "0a9e4319651c08151aa0f8d59f32bc5f193aac6eeeec21d29cd3359186fa9337",
+        "deletions": 0,
+        "path": "tests/test_beacon.py",
+        "status": "A",
+        "symbols": [
+          "git",
+          "BeaconTests"
+        ],
+        "topics": []
+      }
+    ],
+    "patch_sha256": "5f8dc5764d866d79c6da96f819c8034b30ef0e52f443f150a2a33e73fed66829"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 7,
+    "kinds": [
+      "code",
+      "configuration",
+      "knowledge",
+      "protocol-state",
+      "test-change"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "add",
+      "agents",
+      "allowed",
+      "any",
+      "attention",
+      "axm",
+      "beacon",
+      "boundary",
+      "branch",
+      "build",
+      "bytes",
+      "candidates",
+      "canonical",
+      "capsule",
+      "changed",
+      "changes",
+      "classify",
+      "cmd",
+      "collect",
+      "commands",
+      "cross",
+      "diff",
+      "discover",
+      "discovery",
+      "ensure",
+      "error",
+      "extract",
+      "fabric",
+      "feat",
+      "feed",
+      "fetch",
+      "git",
+      "github",
+      "growth",
+      "identity",
+      "indexes",
+      "infer",
+      "intersects",
+      "json",
+      "knowledge",
+      "learning",
+      "lines",
+      "load",
+      "local",
+      "matches",
+      "network",
+      "organ",
+      "parse",
+      "parser",
+      "path",
+      "peer",
+      "principle",
+      "protocol",
+      "publish",
+      "purpose",
+      "rank",
+      "read",
+      "ref",
+      "repo",
+      "repos",
+      "repository",
+      "request",
+      "resolve",
+      "run"
+    ]
+  },
+  "source": {
+    "base": "747ca8e384f13215c7119eca4aa150fe95d4bf27",
+    "commit_subject": "feat: add AXM Organ Beacon v0.1 cross-repo learning fabric",
+    "head": "293eba0f0dc9828a11843bbe5be79b2a97c3653e",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}
