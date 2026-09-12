@@ -46,6 +46,44 @@ class ScannerTests(unittest.TestCase):
             self.assertEqual(index["repositories"][0]["path"], ".")
             self.assertEqual(index["repositories"][0]["git"]["head"], "c" * 40)
 
+    def test_git_pointer_cannot_read_identity_outside_scan_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "workspace"
+            repo = root / "repo"
+            external_git = base / "external-git"
+            repo.mkdir(parents=True)
+            (external_git / "refs" / "heads").mkdir(parents=True)
+            (external_git / "HEAD").write_text("ref: refs/heads/private-branch\n", "ascii")
+            (external_git / "refs" / "heads" / "private-branch").write_text("d" * 40 + "\n", "ascii")
+            (repo / ".git").write_text(f"gitdir: {external_git}\n", "utf-8")
+
+            index = scan_workspace(root)
+            identity = index["repositories"][0]["git"]
+            self.assertTrue(identity["present"])
+            self.assertEqual(identity["error"], "git_dir_outside_scan_root")
+            self.assertIsNone(identity["branch"])
+            self.assertIsNone(identity["head"])
+            self.assertNotIn("private-branch", json.dumps(index))
+            self.assertNotIn("d" * 40, json.dumps(index))
+
+    def test_contained_git_pointer_remains_discoverable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "worktree"
+            contained_git = root / "git-storage" / "worktrees" / "worktree"
+            repo.mkdir()
+            (contained_git / "refs" / "heads").mkdir(parents=True)
+            (contained_git / "HEAD").write_text("ref: refs/heads/contained\n", "ascii")
+            (contained_git / "refs" / "heads" / "contained").write_text("e" * 40 + "\n", "ascii")
+            (repo / ".git").write_text(f"gitdir: {contained_git}\n", "utf-8")
+
+            index = scan_workspace(root)
+            identity = index["repositories"][0]["git"]
+            self.assertEqual(identity["branch"], "contained")
+            self.assertEqual(identity["head"], "e" * 40)
+            self.assertNotIn("error", identity)
+
     def test_capability_registry_and_beacon_are_discovered_without_file_contents(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

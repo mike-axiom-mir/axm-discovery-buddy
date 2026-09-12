@@ -1,0 +1,38 @@
+name: Discovery Output Durability
+
+on:
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'discovery_buddy/cli.py'
+      - 'tests/test_output_durability.py'
+      - 'tests/test_output_single_writer.py'
+      - 'tests/test_scan_source_stability.py'
+      - '.github/workflows/discovery-output-durability.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'README.md'
+      - 'discovery_buddy/cli.py'
+      - 'tests/test_output_durability.py'
+      - 'tests/test_output_single_writer.py'
+      - 'tests/test_scan_source_stability.py'
+      - '.github/workflows/discovery-output-durability.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  durability:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m unittest -v tests/test_output_durability.py tests/test_output_single_writer.py tests/test_scan_source_stability.py
+      - run: python -m unittest -v tests/test_scanner.py
+      - run: python -m compileall -q discovery_buddy tests
