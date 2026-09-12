@@ -10,6 +10,7 @@ import tempfile
 from typing import Any
 
 from .output_lock import OutputWriterBusy, output_writer_lock
+from .query import load_index, query_capabilities
 from .scanner import render_markdown, scan_workspace
 
 TRANSACTION_SCHEMA = "axm.discovery-output-transaction/v0.1"
@@ -211,7 +212,6 @@ def _recover_pair(json_path: Path, md_path: Path) -> str:
         journal_path.unlink()
         return "FINALIZED_NEW"
 
-    # Validate every rollback source before changing either final output.
     for entry in transaction["targets"]:
         old_sha = entry["old_sha256"]
         if old_sha is None:
@@ -220,7 +220,6 @@ def _recover_pair(json_path: Path, md_path: Path) -> str:
         if _sha256_regular(backup) != old_sha:
             raise OSError("transaction backup integrity mismatch")
 
-    # Backups are copied rather than consumed so recovery itself can be safely retried.
     for target, entry in zip(targets, transaction["targets"]):
         old_sha = entry["old_sha256"]
         if old_sha is None:
@@ -291,14 +290,10 @@ def _publish_pair(json_path: Path, json_text: str, md_path: Path, md_text: str) 
             journal_path.unlink()
         raise
     else:
-        # Final outputs are now a complete generation. Keep the journal until cleanup is complete;
-        # if the process dies here, explicit recovery recognizes and finalizes the exact new pair.
         if transaction is not None:
             _cleanup_transaction_artifacts(journal_path.parent, transaction)
         journal_path.unlink()
     finally:
-        # Before journaling, final paths were never mutated. Once journaled, remaining artifacts
-        # are recovery evidence and must survive an unhandled interruption.
         if not journal_path.exists() and not journal_path.is_symlink():
             for temp_path in list(staged.values()) + [p for p in backups.values() if p is not None]:
                 temp_path.unlink(missing_ok=True)
@@ -316,6 +311,13 @@ def _build_parser() -> argparse.ArgumentParser:
     recover = sub.add_parser("recover", help="explicitly recover an interrupted discovery output transaction")
     recover.add_argument("--output-dir", default=".discovery")
     recover.add_argument("--public", action="store_true", help="recover the public-safe output pair instead of local output")
+    query = sub.add_parser("query", help="query a saved discovery index without executing discovered capabilities")
+    query.add_argument("index", help="path to a saved local-discovery.json or public-discovery.json")
+    query.add_argument("--capability-id", help="exact capability id")
+    query.add_argument("--provider", help="exact provider value")
+    query.add_argument("--consumer", help="exact consumer value")
+    query.add_argument("--status", help="exact non-null status")
+    query.add_argument("--repo", help="exact public repo id or local workspace-relative repo path")
     return parser
 
 
@@ -331,6 +333,24 @@ def _pending_transaction_error(journal_path: Path, out_dir: Path, public: bool) 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+
+    if args.command == "query":
+        try:
+            index = load_index(args.index)
+            result = query_capabilities(
+                index,
+                capability_id=args.capability_id,
+                provider=args.provider,
+                consumer=args.consumer,
+                status=args.status,
+                repo=args.repo,
+            )
+        except (OSError, ValueError) as exc:
+            print(f"discovery-buddy: ERROR: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if result["summary"]["matches"] else 1
+
     out_dir = Path(args.output_dir)
     json_path, md_path = _paths(out_dir, args.public)
     journal_path = _transaction_path(json_path)
@@ -341,8 +361,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         try:
             with output_writer_lock(json_path):
-                # Another process may have completed recovery between the initial observation and
-                # lock acquisition. Re-check under ownership instead of treating that as damage.
                 if not journal_path.exists() and not journal_path.is_symlink():
                     print("discovery-buddy: no interrupted output transaction found")
                     return 0
@@ -363,8 +381,6 @@ def main(argv: list[str] | None = None) -> int:
         try:
             out_dir.mkdir(parents=True, exist_ok=True)
             with output_writer_lock(json_path):
-                # Ownership begins before workspace observation. A later scanner cannot publish a
-                # newer snapshot and then be overwritten by this older in-flight scan.
                 if journal_path.exists() or journal_path.is_symlink():
                     return _pending_transaction_error(journal_path, out_dir, args.public)
                 try:
@@ -379,9 +395,6 @@ def main(argv: list[str] | None = None) -> int:
                         file=sys.stderr,
                     )
                     return 2
-                # Publish the second observation. Equality means it is byte-for-byte equivalent to
-                # the first deterministic snapshot while keeping the published object nearest to
-                # the final source observation.
                 index = confirmation
                 json_text, md_text = _serialized(index)
                 try:
