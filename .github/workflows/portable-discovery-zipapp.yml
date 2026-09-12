@@ -1,0 +1,53 @@
+name: Portable Discovery Zipapp
+
+on:
+  pull_request:
+    paths:
+      - 'discovery_buddy/**'
+      - 'tools/build_portable_discovery.py'
+      - 'tests/test_portable_zipapp.py'
+      - 'tests/test_query.py'
+      - 'tests/test_scanner.py'
+      - 'docs/PORTABLE_ZIPAPP.md'
+      - '.github/workflows/portable-discovery-zipapp.yml'
+      - 'README.md'
+  push:
+    branches: [main]
+    paths:
+      - 'discovery_buddy/**'
+      - 'tools/build_portable_discovery.py'
+      - 'tests/test_portable_zipapp.py'
+      - 'tests/test_query.py'
+      - 'tests/test_scanner.py'
+      - 'docs/PORTABLE_ZIPAPP.md'
+      - '.github/workflows/portable-discovery-zipapp.yml'
+      - 'README.md'
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile portable boundary
+        run: python -m compileall -q discovery_buddy tools/build_portable_discovery.py tests/test_portable_zipapp.py tests/test_query.py tests/test_scanner.py
+      - name: Run scanner, query, and portable regressions
+        run: python -m unittest -v tests/test_scanner.py tests/test_query.py tests/test_portable_zipapp.py
+      - name: Build and verify deterministic zipapp
+        run: |
+          python tools/build_portable_discovery.py build \
+            --output /tmp/discovery-buddy.pyz \
+            --receipt /tmp/discovery-buddy.pyz.receipt.json
+          python tools/build_portable_discovery.py verify \
+            --output /tmp/discovery-buddy.pyz \
+            --receipt /tmp/discovery-buddy.pyz.receipt.json
+          cd /tmp
+          PYTHONPATH= PYTHONNOUSERSITE=1 python discovery-buddy.pyz --help
