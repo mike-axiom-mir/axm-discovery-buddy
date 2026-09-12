@@ -36,6 +36,7 @@ Local mode:
 - may report workspace-relative repository paths;
 - never writes the absolute scan root into the index;
 - never exports arbitrary source contents;
+- refuses to read Git identity through a `.git` directory or pointer whose resolved target leaves the selected scan root;
 - hashes only bounded named evidence files (`README.md`, `AGENTS.md`) and parsed discovery metadata.
 
 Public mode is fail-closed. A repository is omitted unless `.axm/discovery-public.json` explicitly says `public: true` under schema `axm.discovery-public/v1`. Public output strips local paths and Git work-state fields.
