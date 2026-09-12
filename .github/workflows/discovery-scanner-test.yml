@@ -1,0 +1,33 @@
+name: Discovery Scanner Tests
+
+on:
+  pull_request:
+    paths:
+      - 'discovery_buddy/**'
+      - 'tests/test_scanner.py'
+      - '.github/workflows/discovery-scanner-test.yml'
+      - '.axm/discovery-public.json'
+      - 'README.md'
+  push:
+    branches: [main]
+    paths:
+      - 'discovery_buddy/**'
+      - 'tests/test_scanner.py'
+      - '.github/workflows/discovery-scanner-test.yml'
+      - '.axm/discovery-public.json'
+      - 'README.md'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest -v tests/test_scanner.py
+      - run: python -m discovery_buddy scan . --output-dir /tmp/discovery-smoke
+      - run: python -m discovery_buddy verify . --output-dir /tmp/discovery-smoke
