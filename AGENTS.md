@@ -45,3 +45,16 @@ Reusable discoveries may travel between repositories as evidence, never as silen
 - Never allow beacon transport state to overwrite canonical source, bypass local acceptance gates, or create automatic AXM canon.
 
 **Working rule:** share evidence and capability discoveries; let every receiving body earn adoption for itself.
+
+## Constitutional merge / CANON gate
+
+AXM internal integration is evaluated through four roots:
+
+- **Truth** — claims, state, provenance, and evidence must remain honest and inspectable.
+- **Agency / non-domination** — capability must not silently become control over another participant, repository, or user.
+- **Continuity** — preserve identity, provenance, rollback paths, and compatible growth instead of silently rewriting the body.
+- **Wisdom before speed** — prefer grounded, reversible progress over fast promotion when evidence is incomplete.
+
+Mike/founder is not AXM's constitutional merge or CANON gate. Technical execution permission is not canonical authority. Grounded human and machine reasoning have equal standing under the roots. There is no automatic CANON: discovery, Beacon transport, query results, portable artifacts, tests, or successful execution are evidence inputs, not self-promoting authority.
+
+Historical PR or lane wording that names Mike as the internal merge/CANON gate is superseded by this four-root governance model.
