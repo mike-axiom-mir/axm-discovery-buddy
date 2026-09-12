@@ -120,21 +120,45 @@ def scan(root: Path, config_path: str, feed_dirs: list[Path], github: bool, limi
     }
 
 
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(char in "0123456789abcdef" for char in value)
+    )
+
+
+def _validate_fetch_identity(capsule: dict[str, Any], expected_repo: str, expected_capsule_id: str) -> str:
+    if not _is_sha256(expected_capsule_id):
+        raise BeaconError("invalid capsule id: expected 64 lowercase hex characters")
+    ok, reason = verify_capsule(capsule)
+    if not ok:
+        raise BeaconError(reason)
+    if capsule.get("capsule_id") != expected_capsule_id:
+        raise BeaconError("fetched capsule id does not match requested capsule id")
+    source_repo = capsule.get("source", {}).get("repo")
+    if source_repo != expected_repo:
+        raise BeaconError(f"fetched capsule source repo mismatch: expected {expected_repo}, got {source_repo}")
+    patch_hash = capsule.get("evidence", {}).get("patch_sha256")
+    if not _is_sha256(patch_hash):
+        raise BeaconError("fetched capsule is missing a valid patch_sha256")
+    return patch_hash
+
+
 def fetch_capsule(repo: str, capsule_id: str, branch: str, dest: Path, token: str | None = None) -> tuple[Path, Path]:
+    if not _is_sha256(capsule_id):
+        raise BeaconError("invalid capsule id: expected 64 lowercase hex characters")
     base = f"https://raw.githubusercontent.com/{repo}/{branch}"
     capsule_url = f"{base}/capsules/{capsule_id}.json"
     patch_url = f"{base}/patches/{capsule_id}.patch"
     capsule = _request_json(capsule_url, token=token)
-    ok, reason = verify_capsule(capsule)
-    if not ok:
-        raise BeaconError(reason)
+    expected_patch = _validate_fetch_identity(capsule, repo, capsule_id)
     req = urllib.request.Request(patch_url, headers={"User-Agent": "axm-organ-beacon/0.1"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(req, timeout=12.0) as response:
         patch = response.read()
-    expected_patch = capsule.get("evidence", {}).get("patch_sha256")
-    if expected_patch and sha256_bytes(patch) != expected_patch:
+    if sha256_bytes(patch) != expected_patch:
         raise BeaconError("patch hash mismatch")
     target = dest / capsule_id
     target.mkdir(parents=True, exist_ok=True)

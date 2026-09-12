@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 MODULE_PATH = Path(__file__).parents[1] / ".axm" / "beacon" / "beacon.py"
 spec = importlib.util.spec_from_file_location("axm_beacon", MODULE_PATH)
@@ -12,6 +13,8 @@ beacon = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = beacon
 assert spec.loader is not None
 spec.loader.exec_module(beacon)
+core = sys.modules["core"]
+network = sys.modules["network"]
 
 
 def git(root: Path, *args: str) -> str:
@@ -135,6 +138,50 @@ class BeaconTests(unittest.TestCase):
         ranked = beacon.rank_candidates(indexes, "example/receiver", ["deterministic cache"])
         self.assertEqual(ranked[0]["capsule_id"], "a")
         self.assertEqual(ranked[0]["interest_overlap"], ["cache", "deterministic"])
+
+    def test_fetch_identity_binds_requested_id_and_source_repo(self):
+        root = self.make_repo()
+        base, head = self.add_reusable_change(root)
+        capsule = beacon.publish(root, base, head, root / "feed", ".axm/beacon.json")
+        patch_hash = network._validate_fetch_identity(
+            capsule,
+            "example/receiver",
+            capsule["capsule_id"],
+        )
+        self.assertEqual(patch_hash, capsule["evidence"]["patch_sha256"])
+
+        with self.assertRaisesRegex(beacon.BeaconError, "requested capsule id"):
+            network._validate_fetch_identity(capsule, "example/receiver", "0" * 64)
+        with self.assertRaisesRegex(beacon.BeaconError, "source repo mismatch"):
+            network._validate_fetch_identity(capsule, "example/other", capsule["capsule_id"])
+
+    def test_fetch_identity_requires_patch_hash_even_for_self_consistent_capsule(self):
+        root = self.make_repo()
+        base, head = self.add_reusable_change(root)
+        capsule = beacon.publish(root, base, head, root / "feed", ".axm/beacon.json")
+        forged = json.loads(json.dumps(capsule))
+        del forged["evidence"]["patch_sha256"]
+        forged_core = {key: value for key, value in forged.items() if key != "capsule_id"}
+        forged["capsule_id"] = core.sha256_text(core.canonical_json(forged_core))
+        ok, reason = beacon.verify_capsule(forged)
+        self.assertTrue(ok, reason)
+
+        with self.assertRaisesRegex(beacon.BeaconError, "patch_sha256"):
+            network._validate_fetch_identity(forged, "example/receiver", forged["capsule_id"])
+
+    def test_fetch_rejects_unsafe_capsule_id_before_network_or_disk(self):
+        root = self.make_repo()
+        dest = root / "inbox"
+        with mock.patch.object(network, "_request_json") as request_json:
+            with self.assertRaisesRegex(beacon.BeaconError, "invalid capsule id"):
+                network.fetch_capsule(
+                    "example/source",
+                    "../escape",
+                    "axm-beacon-feed",
+                    dest,
+                )
+            request_json.assert_not_called()
+        self.assertFalse((root / "escape").exists())
 
 
 if __name__ == "__main__":

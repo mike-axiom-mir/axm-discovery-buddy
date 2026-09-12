@@ -46,6 +46,19 @@ A capsule ID is the SHA-256 of canonical JSON containing:
 
 Timestamps are intentionally excluded from identity. Running the publisher twice over the same source state produces the same capsule ID.
 
+## Fetch-time identity gate
+
+The proposal inbox now fails closed before accepting fetched transport bytes:
+
+- the requested capsule ID must be exactly 64 lowercase hexadecimal characters before it is used in a URL or local destination path;
+- the fetched capsule must pass its deterministic self-hash/protocol verification;
+- its embedded `capsule_id` must equal the exact requested capsule ID;
+- its embedded source repository must equal the exact repository requested by the receiver;
+- `evidence.patch_sha256` is mandatory and must be a valid SHA-256 value;
+- the fetched patch bytes must match that exact patch hash before anything is written to the proposal inbox.
+
+This closes transport substitution and path-shape ambiguity inside the v0.1 contract. It is an integrity/lineage check, not a signature, GitHub-account authentication system, or claim that the fetched proposal is correct or safe to adopt.
+
 ## Attention score
 
 The beacon computes a small transparent **attention score** from evidence such as changed code, changed tests, documentation, symbols, organ/capability paths, and protocols/schemas.
