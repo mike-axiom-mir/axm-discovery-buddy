@@ -1,0 +1,61 @@
+{
+  "capsule_id": "b18377a9a7b3ca543cdf0c9b169ed90cbcd54b2bbd633a352471377f9361ed0d",
+  "evidence": {
+    "files": [
+      {
+        "additions": 23,
+        "binary": false,
+        "content_sha256": "1bbac292377ffe45e82838bea1e3b8824ce7a5d71f37a7d040e5a0cf6cbd5c42",
+        "deletions": 0,
+        "path": "LICENSE_BOUNDARY.md",
+        "status": "A",
+        "symbols": [],
+        "topics": [
+          "AXM MPL License Boundary",
+          "AXM-owned material",
+          "Historical grants",
+          "Third-party material",
+          "Outputs and interfaces"
+        ]
+      }
+    ],
+    "patch_sha256": "4efa985e034b529cc6bee7e48d19fa8f027c5bc830218d75d839af127022d3aa"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 1,
+    "kinds": [
+      "knowledge"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "axm",
+      "boundary",
+      "discovery",
+      "grants",
+      "historical",
+      "interfaces",
+      "license",
+      "material",
+      "migration",
+      "mpl",
+      "outputs",
+      "owned",
+      "party",
+      "record",
+      "standalone",
+      "third"
+    ]
+  },
+  "source": {
+    "base": "74229dd68fec972f8d3a7859ff53979e21048aad",
+    "commit_subject": "docs: record MPL migration and historical-license boundary",
+    "head": "2e75703f8ee6c8b536cedc1cc1e06566956d2018",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}

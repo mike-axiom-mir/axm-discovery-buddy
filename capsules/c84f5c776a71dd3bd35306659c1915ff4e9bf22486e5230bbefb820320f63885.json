@@ -1,0 +1,221 @@
+{
+  "capsule_id": "c84f5c776a71dd3bd35306659c1915ff4e9bf22486e5230bbefb820320f63885",
+  "evidence": {
+    "files": [
+      {
+        "additions": 6,
+        "binary": false,
+        "content_sha256": "fa69cfdb37d56063db43412387039d7905dbc8cc43c19be0c0f62c42c03a43dc",
+        "deletions": 0,
+        "path": ".axm/discovery-public.json",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 33,
+        "binary": false,
+        "content_sha256": "bd224d5c5b95f450c0948f4df92cd53630e2684538192ea25ab367f080b24d39",
+        "deletions": 0,
+        "path": ".github/workflows/discovery-scanner-test.yml",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 78,
+        "binary": false,
+        "content_sha256": "a7c501d7fdb4da08684b7b588290a836c9a38cd137a9bab9fabd40126d2d8bd4",
+        "deletions": 16,
+        "path": "README.md",
+        "status": "M",
+        "symbols": [],
+        "topics": [
+          "AXM Discovery Buddy",
+          "First run",
+          "What it discovers now",
+          "Privacy and public-export boundary",
+          "Current truth",
+          "Verification"
+        ]
+      },
+      {
+        "additions": 4,
+        "binary": false,
+        "content_sha256": "3b31dbcfe6f5e27f62c67fe4f2a73027cd9370e988c67f3ca5680e9d8e5604e1",
+        "deletions": 0,
+        "path": "discovery_buddy/__init__.py",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 3,
+        "binary": false,
+        "content_sha256": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d",
+        "deletions": 0,
+        "path": "discovery_buddy/__main__.py",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 59,
+        "binary": false,
+        "content_sha256": "5b21caef495fd244f6d0550d5b3987c801d9e870d7f8ef04cb524083241903ec",
+        "deletions": 0,
+        "path": "discovery_buddy/cli.py",
+        "status": "A",
+        "symbols": [
+          "_serialized",
+          "_paths",
+          "_build_parser",
+          "main"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 381,
+        "binary": false,
+        "content_sha256": "57bd75d9faf2d7169ac9df6d09f0fa6310ec3ff710b319435288f880df39803d",
+        "deletions": 0,
+        "path": "discovery_buddy/scanner.py",
+        "status": "A",
+        "symbols": [
+          "_sha256_bytes",
+          "_canonical_json",
+          "_read_bytes",
+          "_read_json",
+          "_git_dir",
+          "_resolve_ref",
+          "read_git_identity",
+          "_safe_text_digest",
+          "read_beacon",
+          "read_public_marker",
+          "_registry_candidates",
+          "read_capabilities",
+          "_walk_for_repositories",
+          "scan_workspace",
+          "render_markdown"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 47,
+        "binary": false,
+        "content_sha256": "5c49cea9dbe60eb9dad28171f49c38b1bcd4a55522cd0f5e28ac631712fd17d8",
+        "deletions": 0,
+        "path": "docs/DISCOVERY_INDEX.md",
+        "status": "A",
+        "symbols": [],
+        "topics": [
+          "Discovery Index v0.1",
+          "Purpose",
+          "Executable bridge",
+          "Deterministic identity",
+          "Privacy boundary",
+          "What this does not prove"
+        ]
+      },
+      {
+        "additions": 114,
+        "binary": false,
+        "content_sha256": "376b033e3eb8f8278dd323a01ab5facf0d63e3c8af49b2855c6d76b98526955a",
+        "deletions": 0,
+        "path": "tests/test_scanner.py",
+        "status": "A",
+        "symbols": [
+          "make_repo",
+          "ScannerTests"
+        ],
+        "topics": []
+      }
+    ],
+    "patch_sha256": "5946d9b150899082155e4f39e10f71bf9a1c7cdc34381039a0932dff49b95bcb"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 6,
+    "kinds": [
+      "code",
+      "configuration",
+      "knowledge",
+      "test-change"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "axm",
+      "beacon",
+      "boundary",
+      "bridge",
+      "buddy",
+      "build",
+      "bytes",
+      "candidates",
+      "canonical",
+      "capabilities",
+      "cli",
+      "current",
+      "deterministic",
+      "digest",
+      "dir",
+      "discovers",
+      "discovery",
+      "does",
+      "executable",
+      "export",
+      "first",
+      "git",
+      "github",
+      "identity",
+      "init",
+      "integrate",
+      "json",
+      "make",
+      "markdown",
+      "marker",
+      "not",
+      "now",
+      "parser",
+      "paths",
+      "privacy",
+      "prove",
+      "purpose",
+      "read",
+      "readme",
+      "ref",
+      "registry",
+      "render",
+      "repo",
+      "repositories",
+      "resolve",
+      "run",
+      "safe",
+      "scan",
+      "scanner",
+      "serialized",
+      "sha256",
+      "standalone",
+      "text",
+      "this",
+      "truth",
+      "verification",
+      "walk",
+      "what",
+      "workflows",
+      "workspace",
+      "yml"
+    ]
+  },
+  "source": {
+    "base": "0ef4e93f30e6aeba7ab1bdc524d82bde6460177b",
+    "commit_subject": "Integrate deterministic Discovery Buddy scanner",
+    "head": "1a38d474d323456b145d949c3da72d57274b6457",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}

@@ -1,0 +1,38 @@
+diff --git a/.github/workflows/public-checkpoint-release-20260913.yml b/.github/workflows/public-checkpoint-release-20260913.yml
+new file mode 100644
+index 0000000..842c7e4
+--- /dev/null
++++ b/.github/workflows/public-checkpoint-release-20260913.yml
+@@ -0,0 +1,32 @@
++name: Publish 2026-09-13 public checkpoint
++
++on:
++  push:
++    branches:
++      - main
++    paths:
++      - .github/workflows/public-checkpoint-release-20260913.yml
++
++permissions:
++  contents: write
++
++jobs:
++  publish:
++    runs-on: ubuntu-latest
++    steps:
++      - name: Create prerelease checkpoint once
++        env:
++          GH_TOKEN: ${{ github.token }}
++          TAG: public-checkpoint-2026-09-13
++          STAGE: "Experimental materialized v0.1 local-first repository/workspace discovery scanner."
++        shell: bash
++        run: |
++          set -euo pipefail
++          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
++          repo_name="${GITHUB_REPOSITORY#*/}"
++          printf '%s\n\n%s\n\n%s\n\n%s\n' \
++            "Public experimental checkpoint of ${repo_name}." \
++            "Current public stage: ${STAGE}" \
++            "This prerelease records the exact repository state at the tagged commit. It is a source checkpoint, not a claim of production readiness, CANON status, universal validity, or completion beyond the repository's documented evidence boundary." \
++            "AXM-owned source is Apache-2.0; third-party material retains its own upstream terms. Read README.md and the repository evidence files for details." > release-notes.md
++          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "${repo_name} — Public Checkpoint 2026-09-13" --notes-file release-notes.md --prerelease

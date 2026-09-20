@@ -1,0 +1,278 @@
+{
+  "capsule_id": "5610fef8c75a7efaa99272a8d9a269e5111d1fe80a020438fd44d817af4ebef4",
+  "evidence": {
+    "files": [
+      {
+        "additions": 38,
+        "binary": false,
+        "content_sha256": "6e59ee8493a975096926acea3c8a877df8e94d09a4b332e1ae24924894db3285",
+        "deletions": 0,
+        "path": ".github/workflows/discovery-output-durability.yml",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 35,
+        "binary": false,
+        "content_sha256": "90a037220e6a5754a99140b2718e37b9ed0c27c0926da18e6b9d36984f619493",
+        "deletions": 0,
+        "path": ".github/workflows/discovery-source-file-admission.yml",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 41,
+        "binary": false,
+        "content_sha256": "fb86d5f7a47f9bff1c6d0cf237f245d1d84cb490cf9bf2880dded95af1e4adbf",
+        "deletions": 4,
+        "path": "README.md",
+        "status": "M",
+        "symbols": [],
+        "topics": [
+          "What it discovers now"
+        ]
+      },
+      {
+        "additions": 374,
+        "binary": false,
+        "content_sha256": "cd1148f44f83811ae132e64b733ea252e77a051f147eb55cce46b726315b50e1",
+        "deletions": 10,
+        "path": "discovery_buddy/cli.py",
+        "status": "M",
+        "symbols": [
+          "_serialized",
+          "_paths",
+          "_transaction_path",
+          "_temp_path",
+          "_stage_text",
+          "_backup_existing",
+          "_sha256_regular",
+          "_is_sha256",
+          "_safe_artifact",
+          "_write_transaction",
+          "_load_transaction",
+          "_target_digest",
+          "_old_state_matches",
+          "_cleanup_transaction_artifacts",
+          "_restore_target_from_backup",
+          "_recover_pair",
+          "_publish_pair",
+          "_build_parser",
+          "_pending_transaction_error",
+          "main"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 89,
+        "binary": false,
+        "content_sha256": "ce20c04fd5d3f97767ce78e5736bb818466ed6e96d41e8fb97dadf807b3870ed",
+        "deletions": 0,
+        "path": "discovery_buddy/output_lock.py",
+        "status": "A",
+        "symbols": [
+          "OutputWriterBusy",
+          "lock_path_for",
+          "_open_lock_file",
+          "_acquire_nonblocking",
+          "output_writer_lock"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 142,
+        "binary": false,
+        "content_sha256": "68e475b423b5a4b6bfd44e41a21e62720a0fc0e8c5cb8a840c1741bf70bad441",
+        "deletions": 46,
+        "path": "discovery_buddy/scanner.py",
+        "status": "M",
+        "symbols": [
+          "_sha256_bytes",
+          "_canonical_json",
+          "_inside",
+          "_file_identity",
+          "_read_bytes",
+          "_read_json",
+          "_git_dir",
+          "_read_git_text",
+          "_resolve_ref",
+          "read_git_identity",
+          "_safe_text_digest",
+          "read_beacon",
+          "read_public_marker",
+          "_registry_candidates",
+          "read_capabilities",
+          "scan_workspace"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 1,
+        "binary": false,
+        "content_sha256": "6d4a1537249361cc20c9b8b53995fd83f18bec18501b75f5be84edabeacb5d16",
+        "deletions": 0,
+        "path": "docs/DISCOVERY_INDEX.md",
+        "status": "M",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 177,
+        "binary": false,
+        "content_sha256": "8e1c9e9f71466ec7f76dba1eb1b97ee6ad143eac3f6e887723d8ff1db7c79560",
+        "deletions": 0,
+        "path": "tests/test_output_durability.py",
+        "status": "A",
+        "symbols": [
+          "make_repo",
+          "OutputDurabilityTests"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 183,
+        "binary": false,
+        "content_sha256": "431121e72d4c8a10a256d6cf6bd288b47ae5702629a695d6e24af785fd88fab3",
+        "deletions": 0,
+        "path": "tests/test_output_single_writer.py",
+        "status": "A",
+        "symbols": [
+          "make_repo",
+          "start_writer_paused_before_journal",
+          "wait_ready",
+          "OutputSingleWriterTests"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 71,
+        "binary": false,
+        "content_sha256": "332e964cfe9a4d789d1a152957881eb004b63c1be0b5b344b327f6e32537c12d",
+        "deletions": 0,
+        "path": "tests/test_scan_source_stability.py",
+        "status": "A",
+        "symbols": [
+          "make_repo",
+          "ScanSourceStabilityTests"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 38,
+        "binary": false,
+        "content_sha256": "19f49b303ba49f140c2427cb58affd628a7026f83a5e97aae46bd6a30e3bbace",
+        "deletions": 0,
+        "path": "tests/test_scanner.py",
+        "status": "M",
+        "symbols": [
+          "ScannerTests"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 130,
+        "binary": false,
+        "content_sha256": "a9c55c3aada867d90b999f6b8f69409f20f0994b0260f1f134030505a8adab23",
+        "deletions": 0,
+        "path": "tests/test_source_file_admission.py",
+        "status": "A",
+        "symbols": [
+          "make_repo",
+          "SourceFileAdmissionTests"
+        ],
+        "topics": []
+      }
+    ],
+    "patch_sha256": "0f5e614ac299708cf3417515da2ce1a65a226ba1826720d935ce6f2dea21fab9"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 6,
+    "kinds": [
+      "code",
+      "configuration",
+      "knowledge",
+      "test-change"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "acquire",
+      "admission",
+      "artifact",
+      "artifacts",
+      "axm",
+      "backup",
+      "beacon",
+      "before",
+      "buddy",
+      "build",
+      "busy",
+      "bytes",
+      "candidates",
+      "canonical",
+      "capabilities",
+      "chain",
+      "cleanup",
+      "cli",
+      "digest",
+      "dir",
+      "discovers",
+      "discovery",
+      "durability",
+      "error",
+      "existing",
+      "from",
+      "git",
+      "github",
+      "identity",
+      "inside",
+      "integrate",
+      "journal",
+      "json",
+      "load",
+      "lock",
+      "make",
+      "marker",
+      "matches",
+      "nonblocking",
+      "now",
+      "open",
+      "output",
+      "pair",
+      "parser",
+      "path",
+      "paths",
+      "paused",
+      "pending",
+      "publish",
+      "read",
+      "readme",
+      "ready",
+      "recover",
+      "ref",
+      "registry",
+      "regular",
+      "repo",
+      "resilience",
+      "resolve",
+      "restore",
+      "safe",
+      "scan",
+      "scanner",
+      "serialized"
+    ]
+  },
+  "source": {
+    "base": "8f4dd6b13a9d0a8720a3a019082e45e89d9f2a2d",
+    "commit_subject": "Integrate Discovery Buddy scanner resilience chain",
+    "head": "8aaafd8080df781d39c1218bb188abd826064d8c",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}

@@ -1,0 +1,157 @@
+{
+  "capsule_id": "b700957fa71a0e54f142a72792677aaf30a2183c3b33047e4d65a708e90fe456",
+  "evidence": {
+    "files": [
+      {
+        "additions": 54,
+        "binary": false,
+        "content_sha256": "f4b7d34265f07066acae44437fc389f6e409cad04ba26cc45c50e604f7ab7fcd",
+        "deletions": 3,
+        "path": ".github/workflows/discovery-output-durability.yml",
+        "status": "M",
+        "symbols": [],
+        "topics": []
+      },
+      {
+        "additions": 444,
+        "binary": false,
+        "content_sha256": "ccdb635a954a77a48502e247690ff785b23d28b432c236c2a67c2f6a8d3fb362",
+        "deletions": 0,
+        "path": "discovery_buddy/recovery_desk.py",
+        "status": "A",
+        "symbols": [
+          "_digest_label",
+          "_preview_recovery",
+          "inspect_recovery",
+          "_short_digest",
+          "render_text",
+          "_status_tone",
+          "render_html",
+          "_build_parser",
+          "main"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 54,
+        "binary": false,
+        "content_sha256": "a927dfff7cdd7441f91c1bb7cd3c3ba27d0fe36762c0e3f15de29244b58f0393",
+        "deletions": 0,
+        "path": "docs/RECOVERY_DESK.md",
+        "status": "A",
+        "symbols": [],
+        "topics": [
+          "Discovery Recovery Desk",
+          "Local HTML realization",
+          "Truth boundary"
+        ]
+      },
+      {
+        "additions": 104,
+        "binary": false,
+        "content_sha256": "e8175e1263f6a44a8ae502ca0777b654dd56e351374854d156e96227d5a0ba79",
+        "deletions": 0,
+        "path": "tests/generate_recovery_desk_evidence.py",
+        "status": "A",
+        "symbols": [
+          "sha256",
+          "make_repo",
+          "stage_interrupted_pair",
+          "main"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 89,
+        "binary": false,
+        "content_sha256": "b709dcd244aab0dc37e615ff7f1ce97c06118e097bd211a03d1b2094216e020f",
+        "deletions": 0,
+        "path": "tests/recovery_desk_browser.py",
+        "status": "A",
+        "symbols": [
+          "main"
+        ],
+        "topics": []
+      },
+      {
+        "additions": 152,
+        "binary": false,
+        "content_sha256": "752ab12fabcfdea523f92244404da7834db37fb4472c7f50da39ce6ee5e46676",
+        "deletions": 0,
+        "path": "tests/test_recovery_desk.py",
+        "status": "A",
+        "symbols": [
+          "make_repo",
+          "stage_interrupted_generation",
+          "RecoveryDeskTests"
+        ],
+        "topics": []
+      }
+    ],
+    "patch_sha256": "de2486b3622734b5f7f7a2fb87005639ac2b16a5b97067dfaf6c01a37d385e5d"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 6,
+    "kinds": [
+      "code",
+      "configuration",
+      "knowledge",
+      "test-change"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "axm",
+      "boundary",
+      "browser",
+      "buddy",
+      "build",
+      "desk",
+      "digest",
+      "discovery",
+      "durability",
+      "evidence",
+      "generate",
+      "generation",
+      "github",
+      "html",
+      "inspect",
+      "integrate",
+      "interrupted",
+      "label",
+      "local",
+      "make",
+      "only",
+      "output",
+      "pair",
+      "parser",
+      "preview",
+      "read",
+      "realization",
+      "recovery",
+      "render",
+      "repo",
+      "sha256",
+      "short",
+      "stage",
+      "standalone",
+      "status",
+      "text",
+      "tone",
+      "truth",
+      "workflows",
+      "yml"
+    ]
+  },
+  "source": {
+    "base": "951dff2fe8ecb89313c3e0ca4823ab1648d7dd29",
+    "commit_subject": "Integrate read-only Discovery Recovery Desk",
+    "head": "a1e28aba31c453023298e01ce4e54107c3f74583",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}

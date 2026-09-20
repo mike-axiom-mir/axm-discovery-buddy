@@ -1,0 +1,46 @@
+{
+  "capsule_id": "cb66e5a1c0b621ea56026cf9166ce9a9cfbb2054a799c6abba6dbfbf760209e2",
+  "evidence": {
+    "files": [
+      {
+        "additions": 373,
+        "binary": false,
+        "content_sha256": "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172",
+        "deletions": 201,
+        "path": "LICENSE",
+        "status": "M",
+        "symbols": [],
+        "topics": []
+      }
+    ],
+    "patch_sha256": "d97021c20ccace6590812f3336a575a081816e3769c47bc8fd0da00f5c32a69f"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 0,
+    "kinds": [],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "axm",
+      "discovery",
+      "license",
+      "machinery",
+      "migrate",
+      "mpl",
+      "owned",
+      "reusable",
+      "standalone"
+    ]
+  },
+  "source": {
+    "base": "8d45aaaead3cac714baa4792501493c19b87d70c",
+    "commit_subject": "license: migrate AXM-owned reusable machinery to MPL-2.0",
+    "head": "74229dd68fec972f8d3a7859ff53979e21048aad",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}

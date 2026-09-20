@@ -1,0 +1,48 @@
+{
+  "capsule_id": "7c88db3f45a51610d0054d2d6d7ed785cd59149fb7aeb1cbc5857203c6cbdddb",
+  "evidence": {
+    "files": [
+      {
+        "additions": 32,
+        "binary": false,
+        "content_sha256": "224e1c93b8ec94380b2071b0bbc75e7674c3c7286ca98dc91f769e8b12d56fab",
+        "deletions": 0,
+        "path": ".github/workflows/public-checkpoint-release-20260913.yml",
+        "status": "A",
+        "symbols": [],
+        "topics": []
+      }
+    ],
+    "patch_sha256": "d69c6ea95029b3406c49348f5cefd36d50da366108c83574a37cb1f655cce262"
+  },
+  "protocol": "axm-beacon/0.1",
+  "signals": {
+    "attention_score": 0,
+    "kinds": [
+      "configuration"
+    ],
+    "meaning": "candidate-for-inspection-not-truth",
+    "tags": [
+      "axm",
+      "checkpoint",
+      "discovery",
+      "github",
+      "publish",
+      "release",
+      "standalone",
+      "workflows",
+      "yml"
+    ]
+  },
+  "source": {
+    "base": "a1e28aba31c453023298e01ce4e54107c3f74583",
+    "commit_subject": "Release: publish 2026-09-13 public checkpoint",
+    "head": "8d45aaaead3cac714baa4792501493c19b87d70c",
+    "repo": "mike-axiom-mir/axm-discovery-buddy"
+  },
+  "transfer": {
+    "auto_apply": false,
+    "mode": "proposal-only",
+    "standalone_receiver": true
+  }
+}
